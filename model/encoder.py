@@ -1,4 +1,4 @@
-from net.modules import *
+from model.modules import *
 import torch
 
 class SwinTransformerBlock(nn.Module):
@@ -239,7 +239,7 @@ class SwinJSCC_Encoder(nn.Module):
                                qkv_bias=qkv_bias, qk_scale=qk_scale,
                                norm_layer=norm_layer,
                                downsample=PatchMerging if i_layer != 0 else None)
-            print("Encoder ", layer.extra_repr())
+            # print("Encoder ", layer.extra_repr())
             self.layers.append(layer)
         self.norm = norm_layer(embed_dims[-1])
         if C != None:
@@ -277,7 +277,7 @@ class SwinJSCC_Encoder(nn.Module):
         x = self.patch_embed(x)
         for i_layer, layer in enumerate(self.layers):
             x = layer(x)
-            print(x.mean())
+            # print(x.mean())
         x = self.norm(x)
 
         if model == 'SwinJSCC_w/o_SAandRA':
@@ -410,3 +410,6 @@ def build_model(config):
         num_params += param.numel()
     print("TOTAL Params {}M".format(num_params / 10 ** 6))
     print("TOTAL FLOPs {}G".format(model.flops() / 10 ** 9))
+
+
+

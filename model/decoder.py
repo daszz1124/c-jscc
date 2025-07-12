@@ -1,6 +1,6 @@
-from net.modules import *
+from model.modules import *
 import torch
-from net.encoder import SwinTransformerBlock, AdaptiveModulator
+from model.encoder import SwinTransformerBlock, AdaptiveModulator
 
 
 class BasicLayer(nn.Module):

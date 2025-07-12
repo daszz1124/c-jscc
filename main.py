@@ -1,31 +1,32 @@
+import torchvision
+import time
+from loss.distortion import *
+import argparse
+import torch.nn as nn
+from datetime import datetime
+import torch
 import torch.optim as optim
-from net.network import SwinJSCC
+from model.network import SwinJSCC
 from data.datasets import get_loader
 from utils import *
 torch.backends.cudnn.benchmark = True
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-import torch
-from datetime import datetime
-import torch.nn as nn
-import argparse
-from loss.distortion import *
-import time
-import torchvision
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 parser = argparse.ArgumentParser(description='SwinJSCC')
-parser.add_argument('--training', action='store_true',
+parser.add_argument('--training', action='store_true', default=False,
                     help='training or testing')
 parser.add_argument('--trainset', type=str, default='DIV2K',
                     choices=['CIFAR10', 'DIV2K'],
                     help='train dataset name')
-parser.add_argument('--testset', type=str, default='ffhq',
+parser.add_argument('--testset', type=str, default='kodak',
                     choices=['kodak', 'CLIC21', 'ffhq'],
                     help='specify the testset for HR models')
 parser.add_argument('--distortion-metric', type=str, default='MSE',
                     choices=['MSE', 'MS-SSIM'],
                     help='evaluation metrics')
 parser.add_argument('--model', type=str, default='SwinJSCC_w/_SAandRA',
-                    choices=['SwinJSCC_w/o_SAandRA', 'SwinJSCC_w/_SA', 'SwinJSCC_w/_RA', 'SwinJSCC_w/_SAandRA'],
+                    choices=['SwinJSCC_w/o_SAandRA', 'SwinJSCC_w/_SA',
+                             'SwinJSCC_w/_RA', 'SwinJSCC_w/_SAandRA'],
                     help='SwinJSCC model or SwinJSCC without channel ModNet or rate ModNet')
 parser.add_argument('--channel-type', type=str, default='awgn',
                     choices=['awgn', 'rayleigh'],
@@ -36,7 +37,13 @@ parser.add_argument('--multiple-snr', type=str, default='10',
                     help='random or fixed snr')
 parser.add_argument('--model_size', type=str, default='base',
                     choices=['small', 'base', 'large'], help='SwinJSCC model size')
+parser.add_argument('--model_path', type=str,
+                    default="/home/iisc/zsd/project/VG2SC/SwinJSCC/checkpoint/SwinJSCC w- SA&RA/SwinJSCC_w_SAandRA_AWGN_HRimage_cbr_msssim_snr.model",)
+parser.add_argument('--workdir',type=str, default='./workdir')
 args = parser.parse_args()
+
+print("args", args)
+
 
 class config():
     seed = 42
@@ -44,14 +51,16 @@ class config():
     CUDA = True
     device = torch.device("cuda:0")
     norm = False
-    # logger
     print_step = 100
     plot_step = 10000
     filename = datetime.now().__str__()[:-7]
-    workdir = './history/{}'.format(filename)
+    workdir = f"{args.workdir}/{filename}"
+    os.makedirs(workdir, exist_ok=False)
     log = workdir + '/Log_{}.log'.format(filename)
     samples = workdir + '/samples'
+    os.makedirs(samples, exist_ok=False)
     models = workdir + '/models'
+    os.makedirs(models, exist_ok=False)
     logger = None
 
     # training details
@@ -83,11 +92,13 @@ class config():
         save_model_freq = 100
         image_dims = (3, 256, 256)
         # train_data_dir = ["/media/D/Dataset/HR_Image_dataset/"]
-        base_path = "/media/D/Dataset/HR_Image_dataset/"
+        base_path = "/home/iisc/zsd/project/VG2SC/SwinJSCC/datasets/"
         if args.testset == 'kodak':
-            test_data_dir = ["/media/D/Dataset/kodak/"]
+            test_data_dir = [
+                "/home/iisc/zsd/project/VG2SC/SwinJSCC/datasets/kodak/"]
         elif args.testset == 'CLIC21':
-            test_data_dir = ["/media/D/Dataset/HR_Image_dataset/clic2021/test/"]
+            test_data_dir = [
+                "/media/D/Dataset/HR_Image_dataset/cliac2021/test/"]
         elif args.testset == 'ffhq':
             test_data_dir = ["/media/D/yangke/SwinJSCC/data/ffhq/"]
 
@@ -130,7 +141,7 @@ class config():
                 window_size=8, mlp_ratio=4., qkv_bias=True, qk_scale=None,
                 norm_layer=nn.LayerNorm, patch_norm=True,
             )
-        elif args.model_size =='large':
+        elif args.model_size == 'large':
             encoder_kwargs = dict(
                 img_size=(image_dims[1], image_dims[2]), patch_size=2, in_chans=3,
                 embed_dims=[128, 192, 256, 320], depths=[2, 2, 18, 2], num_heads=[4, 6, 8, 10], C=channel_number,
@@ -144,19 +155,27 @@ class config():
                 norm_layer=nn.LayerNorm, patch_norm=True,
             )
 
+
 if args.trainset == 'CIFAR10':
-    CalcuSSIM = MS_SSIM(window_size=3, data_range=1., levels=4, channel=3).cuda()
+    CalcuSSIM = MS_SSIM(window_size=3, data_range=1.,
+                        levels=4, channel=3).cuda()
 else:
     CalcuSSIM = MS_SSIM(data_range=1., levels=4, channel=3).cuda()
 
+
 def load_weights(model_path):
     pretrained = torch.load(model_path)
-    net.load_state_dict(pretrained, strict=True)
+    model_dict = net.state_dict()
+    pretrained = {k: v for k, v in pretrained.items()
+                  if k in model_dict and model_dict[k].size() == v.size()}
+    net.load_state_dict(pretrained, strict=False)
     del pretrained
+
 
 def train_one_epoch(args):
     net.train()
-    elapsed, losses, psnrs, msssims, cbrs, snrs = [AverageMeter() for _ in range(6)]
+    elapsed, losses, psnrs, msssims, cbrs, snrs = [
+        AverageMeter() for _ in range(6)]
     metrics = [elapsed, losses, psnrs, msssims, cbrs, snrs]
     global global_step
     if args.trainset == 'CIFAR10':
@@ -176,14 +195,16 @@ def train_one_epoch(args):
             if mse.item() > 0:
                 psnr = 10 * (torch.log(255. * 255. / mse) / np.log(10))
                 psnrs.update(psnr.item())
-                msssim = 1 - CalcuSSIM(input, recon_image.clamp(0., 1.)).mean().item()
+                msssim = 1 - \
+                    CalcuSSIM(input, recon_image.clamp(0., 1.)).mean().item()
                 msssims.update(msssim)
             else:
                 psnrs.update(100)
                 msssims.update(100)
 
             if (global_step % config.print_step) == 0:
-                process = (global_step % train_loader.__len__()) / (train_loader.__len__()) * 100.0
+                process = (global_step % train_loader.__len__()) / \
+                    (train_loader.__len__()) * 100.0
                 log = (' | '.join([
                     f'Epoch {epoch}',
                     f'Step [{global_step % train_loader.__len__()}/{train_loader.__len__()}={process:.2f}%]',
@@ -215,7 +236,8 @@ def train_one_epoch(args):
             if mse.item() > 0:
                 psnr = 10 * (torch.log(255. * 255. / mse) / np.log(10))
                 psnrs.update(psnr.item())
-                msssim = 1 - CalcuSSIM(input, recon_image.clamp(0., 1.)).mean().item()
+                msssim = 1 - \
+                    CalcuSSIM(input, recon_image.clamp(0., 1.)).mean().item()
                 msssims.update(msssim)
 
             else:
@@ -223,7 +245,8 @@ def train_one_epoch(args):
                 msssims.update(100)
 
             if (global_step % config.print_step) == 0:
-                process = (global_step % train_loader.__len__()) / (train_loader.__len__()) * 100.0
+                process = (global_step % train_loader.__len__()) / \
+                    (train_loader.__len__()) * 100.0
                 log = (' | '.join([
                     f'Epoch {epoch}',
                     f'Step [{global_step % train_loader.__len__()}/{train_loader.__len__()}={process:.2f}%]',
@@ -264,15 +287,19 @@ def test():
                     for batch_idx, (input, label) in enumerate(test_loader):
                         start_time = time.time()
                         input = input.cuda()
-                        recon_image, CBR, SNR, mse, loss_G = net(input, SNR, rate)
+                        recon_image, CBR, SNR, mse, loss_G = net(
+                            input, SNR, rate)
 
                         elapsed.update(time.time() - start_time)
                         cbrs.update(CBR)
                         snrs.update(SNR)
                         if mse.item() > 0:
-                            psnr = 10 * (torch.log(255. * 255. / mse) / np.log(10))
+                            psnr = 10 * \
+                                (torch.log(255. * 255. / mse) / np.log(10))
                             psnrs.update(psnr.item())
-                            msssim = 1 - CalcuSSIM(input, recon_image.clamp(0., 1.)).mean().item()
+                            msssim = 1 - \
+                                CalcuSSIM(input, recon_image.clamp(
+                                    0., 1.)).mean().item()
                             msssims.update(msssim)
                         else:
                             psnrs.update(100)
@@ -292,16 +319,20 @@ def test():
                         input, names = batch
                         start_time = time.time()
                         input = input.cuda()
-                        recon_image, CBR, SNR, mse, loss_G = net(input, SNR, rate)
+                        recon_image, CBR, SNR, mse, loss_G = net(
+                            input, SNR, rate)
                         torchvision.utils.save_image(recon_image,
-                                                     os.path.join("/media/D/yangke/SwinJSCC/data/", f"recon/{names[0]}"))
+                                                     os.path.join("/home/iisc/zsd/project/VG2SC/SwinJSCC/recon_img", f"recon/{names[0]}"))
                         elapsed.update(time.time() - start_time)
                         cbrs.update(CBR)
                         snrs.update(SNR)
                         if mse.item() > 0:
-                            psnr = 10 * (torch.log(255. * 255. / mse) / np.log(10))
+                            psnr = 10 * \
+                                (torch.log(255. * 255. / mse) / np.log(10))
                             psnrs.update(psnr.item())
-                            msssim = 1 - CalcuSSIM(input, recon_image.clamp(0., 1.)).mean().item()
+                            msssim = 1 - \
+                                CalcuSSIM(input, recon_image.clamp(
+                                    0., 1.)).mean().item()
                             msssims.update(msssim)
                             MSSSIM = -10 * np.math.log10(1 - msssim)
                             print(MSSSIM)
@@ -330,14 +361,15 @@ def test():
     print("MS-SSIM: {}".format(results_msssim.tolist()))
     print("Finish Test!")
 
+
 if __name__ == '__main__':
     seed_torch()
     logger = logger_configuration(config, save_log=False)
     logger.info(config.__dict__)
     torch.manual_seed(seed=config.seed)
     net = SwinJSCC(args, config)
-    model_path = "/media/D/yangke/SwinJSCC/checkpoint/SwinJSCC_w_SAandRA_AWGN_HRimage_cbr_psnr_snr.model"
-    load_weights(model_path)
+    if args.model_path:
+        load_weights(args.model_path)
     net = net.cuda()
     model_params = [{'params': net.parameters(), 'lr': 0.0001}]
     train_loader, test_loader = get_loader(args, config)
@@ -346,11 +378,13 @@ if __name__ == '__main__':
     global_step = 0
     steps_epoch = global_step // train_loader.__len__()
     if args.training:
+        print("begin training for test result")
+        test()
         for epoch in range(steps_epoch, config.tot_epoch):
             train_one_epoch(args)
             if (epoch + 1) % config.save_model_freq == 0:
-                save_model(net, save_path=config.models + '/{}_EP{}.model'.format(config.filename, epoch + 1))
+                save_model(net, save_path=config.models +
+                           '/{}_EP{}.model'.format(config.filename, epoch + 1))
                 test()
     else:
         test()
-
