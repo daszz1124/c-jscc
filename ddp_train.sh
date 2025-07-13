@@ -46,7 +46,7 @@ run_training() {
 
 run_experiment_set1() {
     # Experiment set 1: Compare different C values
-    local cs=(32 64 96 128 192)
+    local cs=(64 96 128 192)
     local model="SwinJSCC_w/_SA"
     local channel_type="awgn"
     local snr_set="1,4,7,10,13"

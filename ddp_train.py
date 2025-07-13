@@ -41,7 +41,7 @@ def parse_args():
     parser.add_argument('--workdir', type=str, default='./workdir')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
     parser.add_argument('--batch_size', type=int, default=16, help='Batch size for training')
-    parser.add_argument('--epochs', type=int, default=4000, help='Total training epochs')
+    parser.add_argument('--epochs', type=int, default=1000, help='Total training epochs')
     parser.add_argument('--lr', type=float, default=0.0001, help='Learning rate')
     parser.add_argument('--num_workers', type=int, default=4, help='Number of data loader workers')
     parser.add_argument('--dist_port', type=int, default=12345, help='Port for distributed training')
@@ -57,7 +57,7 @@ class Config:
         self.device = torch.device("cuda" if self.cuda else "cpu")
         self.norm = False
         self.print_step = args.print_step
-        self.plot_step = 10000
+        self.plot_step = 100
         self.filename = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
         self.workdir = f"{args.workdir}/{self.filename}"
         os.makedirs(self.workdir, exist_ok=True)
@@ -210,7 +210,7 @@ def train_one_epoch(net, train_loader, optimizer, epoch, config, logger, writer,
         
     return global_step[0]
 
-def test_epoch(net, test_loader, config, logger, writer, node_rank, epoch, args):
+def test_epoch(net, test_loader, config, logger, writer, epoch,node_rank, args):
     config.isTrain = False
     net.eval()
     elapsed, psnrs, msssims, snrs, cbrs = [AverageMeter() for _ in range(5)]
@@ -237,15 +237,15 @@ def test_epoch(net, test_loader, config, logger, writer, node_rank, epoch, args)
                     
                     recon_image, CBR, SNR, mse, loss_G = net(input, SNR, rate)
                     
-                    if args.trainset != 'CIFAR10' and node_rank == 0:
-                        test_samples_dir = os.path.join(config.samples, f"test_SNR{SNR}_Rate{rate}_epoch{epoch}/recon")
+                    if node_rank == 0:
+                        test_samples_dir = os.path.join(config.samples, f"test_SNR{SNR}_Rate{rate}_epoch{epoch}/input")
                         os.makedirs(test_samples_dir, exist_ok=True)
-                        torchvision.utils.save_image(recon_image, os.path.join(test_samples_dir, names[0]))
+                        torchvision.utils.save_image(input, os.path.join(test_samples_dir, names[0]))
                     
                     elapsed.update(time.time() - start_time)
                     cbrs.update(CBR)
                     snrs.update(SNR)
-                    psnr = calculate_psnr(mse.item())
+                    psnr = calculate_psnr(mse)
                     psnrs.update(psnr)
                     msssim = 1 - CalcuSSIM(input, recon_image.clamp(0., 1.)).mean().item()
                     msssims.update(msssim)
@@ -262,12 +262,13 @@ def test_epoch(net, test_loader, config, logger, writer, node_rank, epoch, args)
                         f'PSNR {psnrs.avg:.3f}',
                         f'MSSSIM {msssims.val:.3f} ({msssims.avg:.3f})',
                     ]))
+                    
                     logger.info(f'Test SNR={SNR}, Rate={rate}: {log}')
                     writer.add_scalar(f'Metrics/PSNR_Test_SNR{SNR}_Rate{rate}', psnrs.avg, epoch)
                     writer.add_scalar(f'Metrics/MS-SSIM_Test_SNR{SNR}_Rate{rate}', msssims.avg, epoch)
                     writer.add_scalar(f'Metrics/CBR_Test_SNR{SNR}_Rate{rate}', cbrs.avg, epoch)
                     writer.add_scalar(f'Metrics/SNR_Test_SNR{SNR}_Rate{rate}', snrs.avg, epoch)
-                
+                    
                 for meter in metrics:
                     meter.clear()
     
@@ -295,8 +296,16 @@ def main(opts):
     train_loader = DataLoader(
         train_dataset, batch_size=config.batch_size, sampler=train_sampler, num_workers=opts.num_workers, pin_memory=True
     )
+    
+    # if node_rank == 0:
+    #     test_loader = DataLoader(
+    #         test_dataset, batch_size=1, shuffle=False, num_workers=opts.num_workers, pin_memory=True
+    #     )
+    
     test_loader = DataLoader(
-        test_dataset, batch_size=1, shuffle=False, num_workers=opts.num_workers, pin_memory=True
+        test_dataset, batch_size=1, shuffle=False, 
+        sampler=torch.utils.data.distributed.DistributedSampler(test_dataset, shuffle=False),
+        num_workers=opts.num_workers, pin_memory=True
     )
 
     net = SwinJSCC(opts, config)
@@ -315,10 +324,13 @@ def main(opts):
         global_step[0] = train_one_epoch(net, train_loader, optimizer, epoch, config, logger, writer, node_rank, global_step)
         lr_scheduler.step()
         
-        if node_rank == 0 and (epoch + 1) % config.save_model_freq == 0:
-            save_model(net, save_path=f"{config.models}/{config.filename}_EP{epoch + 1}.model")
-            mean_psnr, mean_ms_ssim, _, mean_cbr = test_epoch(net, test_loader, config, logger, writer, node_rank, epoch, opts)
-            logger.info(f'Epoch {epoch + 1}: PSNR: {mean_psnr:.4f}, MS-SSIM: {mean_ms_ssim:.4f}, CBR: {mean_cbr:.4f}')
+        if  (epoch + 1) % config.save_model_freq == 0:
+            if node_rank == 0:
+                save_model(net, save_path=f"{config.models}/{config.filename}_EP{epoch + 1}.model")
+                mean_psnr, mean_ms_ssim, _, mean_cbr = test_epoch(net, test_loader, config, logger, writer, epoch,node_rank, opts)
+                logger.info(f'Epoch {epoch + 1}: PSNR: {mean_psnr:.4f}, MS-SSIM: {mean_ms_ssim:.4f}, CBR: {mean_cbr:.4f}')
+            else:
+                mean_psnr, mean_ms_ssim, _, mean_cbr = test_epoch(net, test_loader, config, logger, writer, epoch,node_rank, opts)
         
         dist.barrier()
         torch.cuda.empty_cache()
