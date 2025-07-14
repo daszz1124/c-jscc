@@ -3,7 +3,7 @@
 
 # 创建时间戳和日志目录
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-mkdir -p "training_logs/"
+mkdir -p "mmeb_kodak_training_logs/"
 
 # 颜色输出
 RED='\033[0;31m'
@@ -18,17 +18,18 @@ run_training() {
     local snr_set=$4
     local metric=$5
     local model_size=$6
+    local dataset_name=$7
 
-    local work_dir="./workdir/${TIMESTAMP}_C${c}_${channel_type}_snr${snr_set//,/_}_${model//\//_}_${metric}"
-    local log_file="training_logs/${TIMESTAMP}_C${c}_${channel_type}_snr${snr_set//,/_}_${model//\//_}_${metric}.log"
+    local work_dir="./mmeb_kodak/${TIMESTAMP}_C${c}_${channel_type}_snr${snr_set//,/_}_${model//\//_}_${metric}"
+    local log_file="mmeb_kodak_training_logs/${TIMESTAMP}_C${c}_${channel_type}_snr${snr_set//,/_}_${model//\//_}_${metric}.log"
 
     mkdir -p "${work_dir}"
 
     local start_time=$(date +%s)
-    python -W ignore::FutureWarning:timm.models.layers ddp_train.py \
+    python -W ignore::FutureWarning:timm.models.layers ddp_mmeb_datasets.py \
         --training \
-        --trainset DIV2K \
-        --testset kodak \
+        --trainset MMEB_Kodak \
+        --dataset_name "${dataset_name}" \
         --distortion-metric "${metric}" \
         --model "${model}" \
         --channel-type "${channel_type}" \
@@ -51,7 +52,8 @@ run_experiment_set1() {
     local snr_set="1,4,7,10,13"
     local metric="MSE"
     local model_size="base"
-    run_training "${c}" "${model}" "${channel_type}" "${snr_set}" "${metric}" "${model_size}"
+    local dataset_name="CIRR"
+    run_training "${c}" "${model}" "${channel_type}" "${snr_set}" "${metric}" "${model_size}" "${dataset_name}"
 }
 
 run_experiment_set2() {
@@ -61,7 +63,8 @@ run_experiment_set2() {
     local snr_set="1,4,7,10,13"
     local metric="MSE"
     local model_size="base"
-    run_training "${c}" "${model}" "${channel_type}" "${snr_set}" "${metric}" "${model_size}"
+    local dataset_name="CIRR"
+    run_training "${c}" "${model}" "${channel_type}" "${snr_set}" "${metric}" "${model_size}" "${dataset_name}"
 }
 
 run_experiment_set3() {
@@ -72,7 +75,8 @@ run_experiment_set3() {
     local snr_set="10"
     local metric="MSE"
     local model_size="base"
-    run_training "${c}" "${model}" "${channel}" "${snr_set}" "${metric}" "${model_size}"
+    local dataset_name="CIRR"
+    run_training "${c}" "${model}" "${channel}" "${snr_set}" "${metric}" "${model_size}" "${dataset_name}"
 }
 
 
@@ -84,7 +88,8 @@ run_experiment_set4() {
     local snr_set="1,4,7,10,13"
     local metric="MSE"
     local model_size="base"
-    run_training "${c}" "${model}" "${channel}" "${snr_set}" "${metric}" "${model_size}"
-}
+    local dataset_name="CIRR"
+    run_training "${c}" "${model}" "${channel}" "${snr_set}" "${metric}" "${model_size}" "${dataset_name}"
+} 
 
 run_experiment_set1

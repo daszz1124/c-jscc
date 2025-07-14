@@ -187,8 +187,6 @@ def train_one_epoch(args):
                 f'Lr {cur_lr}',
             ]))
             logger.info(log)
-            for i in metrics:
-                i.clear()
     for i in metrics:
         i.clear()
 

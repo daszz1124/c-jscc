@@ -5,3 +5,17 @@ logs/
 training_logs/
 trainning_logs/
 workdir/
+
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/*.pkl
+**/*.pkl.gz
+
+__pycache__/
+
+MMEB-Datasets/
+
+mmeb_kodak/
+mmeb_kodak_training_logs/

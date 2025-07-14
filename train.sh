@@ -1,7 +1,6 @@
 #!/bin/bash
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 
-# 创建带时间戳的日志目录
 mkdir -p "training_logs/"
 
 for C in 32 64 96 128 192; do
