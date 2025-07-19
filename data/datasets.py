@@ -149,7 +149,3 @@ def get_loader(args, config):
                                               shuffle=False)
 
     return train_loader, test_loader
-
-
-
-    

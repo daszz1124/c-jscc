@@ -69,27 +69,27 @@ run_experiment_set2() {
 
 run_experiment_set3() {
     # Experiment set 3
-    local channels="awgn"
+    local channel_type="awgn"
     local c="32,64,96,128,192"
     local model="SwinJSCC_w/_RA"
     local snr_set="10"
     local metric="MSE"
     local model_size="base"
     local dataset_name="CIRR"
-    run_training "${c}" "${model}" "${channel}" "${snr_set}" "${metric}" "${model_size}" "${dataset_name}"
+    run_training "${c}" "${model}" "${channel_type}" "${snr_set}" "${metric}" "${model_size}" "${dataset_name}"
 }
 
 
 run_experiment_set4() {
     # Experiment set 4: Compare different channel types
-    local channels="rayleigh"
+    local channel_type="rayleigh"
     local c="32,64,96,128,192"
     local model="SwinJSCC_w/_SAandRA"
     local snr_set="1,4,7,10,13"
     local metric="MSE"
     local model_size="base"
     local dataset_name="CIRR"
-    run_training "${c}" "${model}" "${channel}" "${snr_set}" "${metric}" "${model_size}" "${dataset_name}"
+    run_training "${c}" "${model}" "${channel_type}" "${snr_set}" "${metric}" "${model_size}" "${dataset_name}"
 } 
 
-run_experiment_set1
+run_experiment_set3

@@ -15,7 +15,7 @@ workdir/
 
 __pycache__/
 
-MMEB-Datasets/
+MMEB-Datasets/*
 
-mmeb_kodak/
-mmeb_kodak_training_logs/
+mmeb_kodak/*
+mmeb_kodak_training_logs/*

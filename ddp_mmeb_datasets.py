@@ -55,7 +55,7 @@ def parse_args():
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
     parser.add_argument('--batch_size', type=int, default=16,
                         help='Batch size for training')
-    parser.add_argument('--epochs', type=int, default=200,
+    parser.add_argument('--epochs', type=int, default=300,
                         help='Total training epochs')
     parser.add_argument('--lr', type=float, default=0.0001,
                         help='Learning rate')
@@ -104,7 +104,8 @@ class Config:
             self.test_image_dir = "/home/iisc/zsd/project/VG2SC/MMEB-Datasets/eval_images"
 
         elif args.trainset == "MMEB_Kodak":
-            self.test_data_dir = "/home/iisc/zsd/project/VG2SC/SwinJSCC/datasets/kodak"
+            self.test_data_dir = [
+                "/home/iisc/zsd/project/VG2SC/SwinJSCC/datasets/kodak/"]
 
         self.batch_size = args.batch_size
         self.downsample = 4
@@ -269,13 +270,6 @@ def test_epoch(net, test_loader, config, logger, writer, epoch, node_rank, args)
 
                     recon_image, CBR, SNR, mse, loss_G = net(input, SNR, rate)
 
-                    if node_rank == 0:
-                        test_samples_dir = os.path.join(
-                            config.samples, f"test_SNR{SNR}_Rate{rate}_epoch{epoch}/input")
-                        os.makedirs(test_samples_dir, exist_ok=True)
-                        torchvision.utils.save_image(
-                            input, os.path.join(test_samples_dir, names[0]))
-
                     elapsed.update(time.time() - start_time)
                     cbrs.update(CBR)
                     snrs.update(SNR)
@@ -285,6 +279,13 @@ def test_epoch(net, test_loader, config, logger, writer, epoch, node_rank, args)
                         CalcuSSIM(input, recon_image.clamp(
                             0., 1.)).mean().item()
                     msssims.update(msssim)
+
+                    if node_rank == 0:
+                        test_samples_dir = os.path.join(
+                            config.samples, f"test_SNR{SNR}_Rate{rate}_epoch{epoch}/input")
+                        os.makedirs(test_samples_dir, exist_ok=True)
+                        torchvision.utils.save_image(
+                            recon_image, os.path.join(test_samples_dir, names[0]))
 
                 results_snr[i, j] = snrs.avg
                 results_cbr[i, j] = cbrs.avg
@@ -346,8 +347,6 @@ def main(opts):
 
     test_loader = DataLoader(
         test_dataset, batch_size=1, shuffle=False,
-        sampler=torch.utils.data.distributed.DistributedSampler(
-            test_dataset, shuffle=False),
         num_workers=opts.num_workers, pin_memory=True
     )
 
