@@ -20,7 +20,7 @@ run_training() {
     local model_size=$6
     local dataset_name=$7
 
-    local work_dir="./mmeb_kodak/${TIMESTAMP}_C${c}_${channel_type}_snr${snr_set//,/_}_${model//\//_}_${metric}"
+    local work_dir="./mmeb_kodak_training/${TIMESTAMP}_C${c}_${channel_type}_snr${snr_set//,/_}_${model//\//_}_${metric}"
     local log_file="mmeb_kodak_training_logs/${TIMESTAMP}_C${c}_${channel_type}_snr${snr_set//,/_}_${model//\//_}_${metric}.log"
 
     mkdir -p "${work_dir}"

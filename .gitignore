@@ -17,5 +17,9 @@ __pycache__/
 
 MMEB-Datasets/*
 
-mmeb_kodak/*
+mmeb_kodak_training/*
 mmeb_kodak_training_logs/*
+
+
+eval_results/*
+evaluation/*

@@ -283,9 +283,11 @@ def test_epoch(net, test_loader, config, logger, writer, epoch, node_rank, args)
                     if node_rank == 0:
                         test_samples_dir = os.path.join(
                             config.samples, f"test_SNR{SNR}_Rate{rate}_epoch{epoch}/input")
-                        os.makedirs(test_samples_dir, exist_ok=True)
-                        torchvision.utils.save_image(
-                            recon_image, os.path.join(test_samples_dir, names[0]))
+                        os.makedirs(test_samples_dir, exist_ok=True)   
+                        image_name = names[0][:-4] + \
+                            f"regon_psnr{psnr:.5f}_msssim{msssim:.5f}.png"
+                        torchvision.utils.save_image(recon_image, os.path.join(
+                            test_samples_dir, image_name))
 
                 results_snr[i, j] = snrs.avg
                 results_cbr[i, j] = cbrs.avg

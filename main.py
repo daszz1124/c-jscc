@@ -170,6 +170,8 @@ def load_weights(model_path):
                   if k in model_dict and model_dict[k].size() == v.size()}
     net.load_state_dict(pretrained, strict=False)
     del pretrained
+    
+    
 
 
 def train_one_epoch(args):

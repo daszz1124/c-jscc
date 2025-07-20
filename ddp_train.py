@@ -240,7 +240,7 @@ def test_epoch(net, test_loader, config, logger, writer, epoch,node_rank, args):
                     if node_rank == 0:
                         test_samples_dir = os.path.join(config.samples, f"test_SNR{SNR}_Rate{rate}_epoch{epoch}/input")
                         os.makedirs(test_samples_dir, exist_ok=True)
-                        torchvision.utils.save_image(input, os.path.join(test_samples_dir, names[0]))
+                        torchvision.utils.save_image(recon_image, os.path.join(test_samples_dir, names[0]))
                     
                     elapsed.update(time.time() - start_time)
                     cbrs.update(CBR)
