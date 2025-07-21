@@ -10,7 +10,7 @@ import numpy as np
 from pytorch_msssim import ms_ssim as ms_ssim_func
 from loss.distortion import MS_SSIM
 from model.network import SwinJSCC
-from data.swindatasets import *
+from data.mmeb_datasets import *
 
 from utils import logger_configuration, seed_torch
 import warnings
@@ -19,11 +19,10 @@ import time
 warnings.filterwarnings("ignore", category=FutureWarning,
                         module="timm.models.layers")
 
-
 def parse_args():
     parser = argparse.ArgumentParser(description='SwinJSCC Test')
-    parser.add_argument('--trainset', type=str, default='MMEB_Kodak',
-                        choices=['MMEB_Kodak', 'MMEB'], help='Train dataset name')
+    parser.add_argument('--testset', type=str, default='MMEB',
+                        choices=['Kodak', 'MMEB'], help='Train dataset name')
     parser.add_argument('--distortion-metric', type=str, default='MSE',
                         choices=['MSE', 'MS-SSIM'], help='trainset metric')
     parser.add_argument('--dataset_name', type=str, default='CIRR',
@@ -42,7 +41,7 @@ def parse_args():
     parser.add_argument('--model_size', type=str, default='base',
                         choices=['small', 'base', 'large'], help='SwinJSCC model size')
     parser.add_argument('--model_path', type=str,
-                        default="mmeb_kodak/20250717_003514_C96_awgn_snr1_4_7_10_13_SwinJSCC_w__SA_MSE/2025-07-17_00-35-20/models/2025-07-17_00-35-20_EP200.model")
+                        default="mmeb_kodak_training/20250717_003514_C96_awgn_snr1_4_7_10_13_SwinJSCC_w__SA_MSE/2025-07-17_00-35-20/models/2025-07-17_00-35-20_EP200.model")
     parser.add_argument('--work_dir', type=str, default='./eval_results',
                         help='Path to save test images')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
@@ -76,10 +75,10 @@ class Config:
         self.image_dir = "/home/iisc/zsd/project/VG2SC/MMEB-Datasets/trainning_images"
         self.dataset_name = args.dataset_name
 
-        if args.trainset == "MMEB":
+        if args.testset == "MMEB":
             self.test_data_dir = "/home/iisc/zsd/project/VG2SC/MMEB-Datasets/MMEB-Datasets/MMEB-eval"
             self.test_image_dir = "/home/iisc/zsd/project/VG2SC/MMEB-Datasets/eval_images"
-        elif args.trainset == "MMEB_Kodak":
+        elif args.testset == "Kodak":
             self.test_data_dir = [
                 "/home/iisc/zsd/project/VG2SC/SwinJSCC/datasets/kodak/"]
 
@@ -156,7 +155,7 @@ def load_weights(net, model_path):
             new_state_dict[new_key] = value
         else:
             new_state_dict[key] = value
-    net.load_state_dict(new_state_dict, strict=True)
+    net.load_state_dict(new_state_dict, strict=False)
     return net
 
 
@@ -172,10 +171,16 @@ def test(net, test_loader, config, logger, args):
     results_psnr = np.zeros((len(multiple_snr), len(channel_number)))
     results_msssim = np.zeros((len(multiple_snr), len(channel_number)))
 
-    for i, test_snr in enumerate(multiple_snr):  # 重命名外层循环变量为test_snr
+    for i, test_snr in enumerate(multiple_snr):  
         for j, rate in enumerate(channel_number):
             with torch.no_grad():
                 for batch_idx, batch in enumerate(test_loader):
+                    
+                    
+                    test_samples_dir = os.path.join(
+                        config.samples, f"test_SNR{test_snr}_Rate{rate}")  # 使用test_snr
+                    os.makedirs(test_samples_dir, exist_ok=True)
+                    
                     start_time = time.time()
                     input, names = batch
                     input = input.to(config.device)
@@ -199,13 +204,18 @@ def test(net, test_loader, config, logger, args):
                     ]))
                     logger.info(
                         f'Test SNR={test_snr}, Rate={rate} with image  {names[0]}: {log}')
-                    test_samples_dir = os.path.join(
-                        config.samples, f"test_SNR{test_snr}_Rate{rate}")  # 使用test_snr
-                    os.makedirs(test_samples_dir, exist_ok=True)
-                    image_name = names[0][:-4] + \
-                        f"regon_psnr{psnr:.5f}_msssim{msssim:.5f}.png"
-                    torchvision.utils.save_image(recon_image, os.path.join(
-                        test_samples_dir, image_name))
+
+                    if args.testset == 'Kodak':
+                        image_name = names[0][:-4] + \
+                            f"regon_psnr{psnr:.5f}_msssim{msssim:.5f}.png"
+                        torchvision.utils.save_image(recon_image, os.path.join(
+                            test_samples_dir, image_name))
+                    else:
+                        dataset_name = names[0].split('/')[0]
+                        os.makedirs(os.path.join(test_samples_dir,dataset_name), exist_ok=True)
+                        if psnr > 30:
+                            torchvision.utils.save_image(recon_image, os.path.join(
+                            test_samples_dir, dataset_name, names[0].split('/')[-1][:-4] + f"_regon_psnr{psnr:.5f}_msssim{msssim:.5f}.png"))
 
                 results_snr[i, j] = snrs.avg
                 results_cbr[i, j] = cbrs.avg

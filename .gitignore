@@ -23,3 +23,12 @@ mmeb_kodak_training_logs/*
 
 eval_results/*
 evaluation/*
+
+
+mmeb_kodak_training/
+mmeb_kodak_training_logs/
+
+
+mmeb_training/
+
+mmeb_training_logs/

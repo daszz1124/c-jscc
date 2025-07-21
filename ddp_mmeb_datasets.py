@@ -18,7 +18,7 @@ from pytorch_msssim import ms_ssim as ms_ssim_func
 from torch.utils.tensorboard import SummaryWriter
 from loss.distortion import MS_SSIM
 from model.network import SwinJSCC
-from data.swindatasets import *
+from data.mmeb_datasets import *
 
 from utils import logger_configuration, save_model, seed_torch
 import warnings
@@ -30,8 +30,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description='SwinJSCC')
     parser.add_argument('--training', action='store_true',
                         default=False, help='Training or testing')
-    parser.add_argument('--trainset', type=str, default='MMEB_Kodak',
-                        choices=['MMEB_Kodak', 'MMEB'], help='Train dataset name')
+    parser.add_argument('--testset', type=str, default='Kodak',
+                        choices=['Kodak', 'MMEB'], help='Train dataset name')
     parser.add_argument('--dataset_name', type=str, default='CIRR',
                         choices=['CIRR'],
                         help='Dataset name for MMEB')
@@ -92,18 +92,18 @@ class Config:
         self.normalize = False
         self.learning_rate = args.lr
         self.tot_epoch = args.epochs
-        self.save_model_freq = 20
+        self.save_model_freq = 1
         self.image_dims = (3, 256, 256)
 
         self.train_data_dir = "/home/iisc/zsd/project/VG2SC/MMEB-Datasets/MMEB-Datasets/MMEB-train"
         self.image_dir = "/home/iisc/zsd/project/VG2SC/MMEB-Datasets/trainning_images"
         self.dataset_name = args.dataset_name
 
-        if args.trainset == "MMEB":
+        if args.testset == "MMEB":
             self.test_data_dir = "/home/iisc/zsd/project/VG2SC/MMEB-Datasets/MMEB-Datasets/MMEB-eval"
             self.test_image_dir = "/home/iisc/zsd/project/VG2SC/MMEB-Datasets/eval_images"
 
-        elif args.trainset == "MMEB_Kodak":
+        elif args.testset == "Kodak":
             self.test_data_dir = [
                 "/home/iisc/zsd/project/VG2SC/SwinJSCC/datasets/kodak/"]
 
@@ -258,15 +258,16 @@ def test_epoch(net, test_loader, config, logger, writer, epoch, node_rank, args)
 
     for i, SNR in enumerate(multiple_snr):
         for j, rate in enumerate(channel_number):
+            
+            test_samples_dir = os.path.join(
+                config.samples, f"test_SNR{SNR}_Rate{rate}")  # 使用test_snr
+            os.makedirs(test_samples_dir, exist_ok=True)
+            
             with torch.no_grad():
                 for batch_idx, batch in enumerate(test_loader):
                     start_time = time.time()
-                    if args.trainset == 'CIFAR10':
-                        input, _ = batch
-                        input = input.to(net.device)
-                    else:
-                        input, names = batch
-                        input = input.to(net.device)
+                    input, names = batch
+                    input = input.to(net.device)
 
                     recon_image, CBR, SNR, mse, loss_G = net(input, SNR, rate)
 
@@ -281,13 +282,18 @@ def test_epoch(net, test_loader, config, logger, writer, epoch, node_rank, args)
                     msssims.update(msssim)
 
                     if node_rank == 0:
-                        test_samples_dir = os.path.join(
-                            config.samples, f"test_SNR{SNR}_Rate{rate}_epoch{epoch}/input")
-                        os.makedirs(test_samples_dir, exist_ok=True)   
-                        image_name = names[0][:-4] + \
-                            f"regon_psnr{psnr:.5f}_msssim{msssim:.5f}.png"
-                        torchvision.utils.save_image(recon_image, os.path.join(
-                            test_samples_dir, image_name))
+                        if args.testset == 'Kodak':
+                            image_name = names[0][:-4] + \
+                                f"regon_psnr{psnr:.5f}_msssim{msssim:.5f}.png"
+                            torchvision.utils.save_image(recon_image, os.path.join(
+                                test_samples_dir, image_name))
+                        else:
+                            dataset_name = names[0].split('/')[0]
+                            os.makedirs(os.path.join(test_samples_dir,
+                                        dataset_name), exist_ok=True)
+                            if psnr > 30:
+                                torchvision.utils.save_image(recon_image, os.path.join(
+                                    test_samples_dir, dataset_name, names[0].split('/')[-1][:-4] + f"_regon_psnr{psnr:.5f}_msssim{msssim:.5f}.png"))
 
                 results_snr[i, j] = snrs.avg
                 results_cbr[i, j] = cbrs.avg

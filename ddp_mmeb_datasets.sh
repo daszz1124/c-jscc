@@ -3,7 +3,9 @@
 
 # 创建时间戳和日志目录
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-mkdir -p "mmeb_kodak_training_logs/"
+
+mkdir -p "mmeb_training/"
+mkdir -p "mmeb_training_logs/"
 
 # 颜色输出
 RED='\033[0;31m'
@@ -20,15 +22,15 @@ run_training() {
     local model_size=$6
     local dataset_name=$7
 
-    local work_dir="./mmeb_kodak_training/${TIMESTAMP}_C${c}_${channel_type}_snr${snr_set//,/_}_${model//\//_}_${metric}"
-    local log_file="mmeb_kodak_training_logs/${TIMESTAMP}_C${c}_${channel_type}_snr${snr_set//,/_}_${model//\//_}_${metric}.log"
+    local work_dir="mmeb_training/${TIMESTAMP}_C${c}_${channel_type}_snr${snr_set//,/_}_${model//\//_}_${metric}"
+    local log_file="mmeb_training_logs/${TIMESTAMP}_C${c}_${channel_type}_snr${snr_set//,/_}_${model//\//_}_${metric}.log"
 
     mkdir -p "${work_dir}"
 
     local start_time=$(date +%s)
     python -W ignore::FutureWarning:timm.models.layers ddp_mmeb_datasets.py \
         --training \
-        --trainset MMEB_Kodak \
+        --testset Kodak \
         --dataset_name "${dataset_name}" \
         --distortion-metric "${metric}" \
         --model "${model}" \
