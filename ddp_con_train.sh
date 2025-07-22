@@ -4,8 +4,8 @@
 # 创建时间戳和日志目录
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 
-mkdir -p "mmeb_training/"
-mkdir -p "mmeb_training_logs/"
+mkdir -p "mmeb_condition_training/"
+mkdir -p "mmeb_condition_training_logs/"
 
 # 颜色输出
 RED='\033[0;31m'
@@ -22,15 +22,15 @@ run_training() {
     local model_size=$6
     local dataset_name=$7
 
-    local work_dir="mmeb_training/${TIMESTAMP}_C${c}_${channel_type}_snr${snr_set//,/_}_${model//\//_}_${metric}"
-    local log_file="mmeb_training_logs/${TIMESTAMP}_C${c}_${channel_type}_snr${snr_set//,/_}_${model//\//_}_${metric}.log"
+    local work_dir="mmeb_condition_training/${TIMESTAMP}_C${c}_${channel_type}_snr${snr_set//,/_}_${model//\//_}_${metric}"
+    local log_file="mmeb_condition_training_logs/${TIMESTAMP}_C${c}_${channel_type}_snr${snr_set//,/_}_${model//\//_}_${metric}.log"
 
     mkdir -p "${work_dir}"
 
     local start_time=$(date +%s)
-    python -W ignore::FutureWarning:timm.models.layers ddp_mmeb_datasets.py \
+    python -W ignore::FutureWarning:timm.models.layers ddp_con_train.py \
         --training \
-        --testset MMEB \
+        --testset Kodak \
         --dataset_name "${dataset_name}" \
         --distortion-metric "${metric}" \
         --model "${model}" \
@@ -54,7 +54,7 @@ run_experiment_set1() {
     local snr_set="1,4,7,10,13"
     local metric="MSE"
     local model_size="base"
-    local dataset_name="VisDial"
+    local dataset_name="CIRR"
     run_training "${c}" "${model}" "${channel_type}" "${snr_set}" "${metric}" "${model_size}" "${dataset_name}"
 }
 

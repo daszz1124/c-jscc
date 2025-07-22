@@ -17,7 +17,7 @@ import numpy as np
 from pytorch_msssim import ms_ssim as ms_ssim_func
 from torch.utils.tensorboard import SummaryWriter
 from loss.distortion import MS_SSIM
-from model.network import SwinJSCC
+from model.embedsc import ConditionSwinJSCC
 from data.mmeb_datasets import *
 import csv
 
@@ -34,7 +34,7 @@ def parse_args():
     parser.add_argument('--testset', type=str, default='Kodak',
                         choices=['Kodak', 'MMEB'], help='Train dataset name')
     parser.add_argument('--dataset_name', type=str, default='CIRR',
-                        choices=['CIRR','VisDial'],
+                        choices=['CIRR', 'VisDial'],
                         help='Dataset name for MMEB')
     parser.add_argument('--distortion-metric', type=str, default='MSE',
                         choices=['MSE', 'MS-SSIM'], help='Evaluation metric')
@@ -114,11 +114,13 @@ class Config:
         self.channel_number = int(args.C) if args.model in [
             'SwinJSCC_w/o_SAandRA', 'SwinJSCC_w/_SA'] else None
 
+        query_dim = 1536
+
         model_configs = {
             'small': {
                 'encoder_kwargs': dict(img_size=self.image_dims[1:], patch_size=2, in_chans=3,
                                        embed_dims=[128, 192, 256, 320], depths=[2, 2, 2, 2], num_heads=[4, 6, 8, 10],
-                                       C=self.channel_number, window_size=8, mlp_ratio=4., qkv_bias=True,
+                                       C=self.channel_number, query_dim=query_dim, window_size=8, mlp_ratio=4., qkv_bias=True,
                                        norm_layer=nn.LayerNorm, patch_norm=True),
                 'decoder_kwargs': dict(img_size=self.image_dims[1:], embed_dims=[320, 256, 192, 128],
                                        depths=[2, 2, 2, 2], num_heads=[10, 8, 6, 4], C=self.channel_number,
@@ -127,7 +129,7 @@ class Config:
             'base': {
                 'encoder_kwargs': dict(img_size=self.image_dims[1:], patch_size=2, in_chans=3,
                                        embed_dims=[128, 192, 256, 320], depths=[2, 2, 6, 2], num_heads=[4, 6, 8, 10],
-                                       C=self.channel_number, window_size=8, mlp_ratio=4., qkv_bias=True,
+                                       C=self.channel_number, query_dim=query_dim, window_size=8, mlp_ratio=4., qkv_bias=True,
                                        norm_layer=nn.LayerNorm, patch_norm=True),
                 'decoder_kwargs': dict(img_size=self.image_dims[1:], embed_dims=[320, 256, 192, 128],
                                        depths=[2, 6, 2, 2], num_heads=[10, 8, 6, 4], C=self.channel_number,
@@ -136,7 +138,7 @@ class Config:
             'large': {
                 'encoder_kwargs': dict(img_size=self.image_dims[1:], patch_size=2, in_chans=3,
                                        embed_dims=[128, 192, 256, 320], depths=[2, 2, 18, 2], num_heads=[4, 6, 8, 10],
-                                       C=self.channel_number, window_size=8, mlp_ratio=4., qkv_bias=True,
+                                       C=self.channel_number, query_dim=query_dim, window_size=8, mlp_ratio=4., qkv_bias=True,
                                        norm_layer=nn.LayerNorm, patch_norm=True),
                 'decoder_kwargs': dict(img_size=self.image_dims[1:], embed_dims=[320, 256, 192, 128],
                                        depths=[2, 18, 2, 2], num_heads=[10, 8, 6, 4], C=self.channel_number,
@@ -188,12 +190,13 @@ def train_one_epoch(net, train_loader, optimizer, epoch, config, logger, writer,
     metrics = [elapsed, losses, psnrs, msssims, cbrs, snrs]
     CalcuSSIM = MS_SSIM(data_range=1., levels=4, channel=3).to(net.device)
 
-    for batch_idx, input in enumerate(train_loader):
+    for batch_idx, batch in enumerate(train_loader):
         start_time = time.time()
         global_step[0] += 1
-        input = input[0].to(net.device) if isinstance(
-            input, (list, tuple)) else input.to(net.device)
-        recon_image, CBR, SNR, mse, loss_G = net(input)
+        input = batch[0].to(net.device)
+        embedding_vector = batch[1].to(net.device)
+
+        recon_image, CBR, SNR, mse, loss_G = net(input, embedding_vector)
         loss = loss_G
 
         optimizer.zero_grad()
@@ -272,10 +275,12 @@ def test_epoch(net, test_loader, config, logger, writer, epoch, node_rank, args)
             with torch.no_grad():
                 for batch_idx, batch in enumerate(test_loader):
                     start_time = time.time()
-                    input, names = batch
+                    input, embedding_vector, names = batch
                     input = input.to(net.device)
+                    embedding_vector = embedding_vector.to(net.device)
 
-                    recon_image, CBR, SNR, mse, loss_G = net(input, SNR, rate)
+                    recon_image, CBR, SNR, mse, loss_G = net(
+                        input, embedding_vector, SNR, rate)
 
                     elapsed.update(time.time() - start_time)
                     cbrs.update(CBR)
@@ -363,17 +368,12 @@ def main(opts):
         train_dataset, batch_size=config.batch_size, sampler=train_sampler, num_workers=opts.num_workers, pin_memory=True
     )
 
-    # if node_rank == 0:
-    #     test_loader = DataLoader(
-    #         test_dataset, batch_size=1, shuffle=False, num_workers=opts.num_workers, pin_memory=True
-    #     )
-
     test_loader = DataLoader(
         test_dataset, batch_size=1, shuffle=False,
         num_workers=opts.num_workers, pin_memory=True
     )
 
-    net = SwinJSCC(opts, config)
+    net = ConditionSwinJSCC(opts, config)
     net = net.to(device_id)
     # Fix 模型中存在未被用于计算损失的参数
     net = DDP(net, device_ids=[device_id],
