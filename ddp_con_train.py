@@ -26,10 +26,13 @@ import warnings
 warnings.filterwarnings("ignore", category=FutureWarning,
                         module="timm.models.layers")
 
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
 
 def parse_args():
     parser = argparse.ArgumentParser(description='SwinJSCC')
     parser.add_argument('--training', action='store_true',
+                        default=False, help='Training or testing')
+    parser.add_argument('is_pretrained', action='store_true',
                         default=False, help='Training or testing')
     parser.add_argument('--testset', type=str, default='Kodak',
                         choices=['Kodak', 'MMEB'], help='Train dataset name')
@@ -51,7 +54,7 @@ def parse_args():
     parser.add_argument('--model_size', type=str, default='base',
                         choices=['small', 'base', 'large'], help='SwinJSCC model size')
     parser.add_argument('--model_path', type=str,
-                        default="/home/iisc/zsd/project/VG2SC/SwinJSCC/checkpoint/SwinJSCC_w_SAandRA.model")
+                        default="mmeb_condition_training/VisDial/20250730_120021_C128,192_awgn_snr1_4_7_10_13_SwinJSCC_w__SAandRA_MSE/2025-07-30_12-00-27/models/2025-07-30_12-00-27_EP50.model", help='SwinJSCC model path')
     parser.add_argument('--workdir', type=str, default='./workdir')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
     parser.add_argument('--batch_size', type=int, default=16,
@@ -93,7 +96,7 @@ class Config:
         self.normalize = False
         self.learning_rate = args.lr
         self.tot_epoch = args.epochs
-        self.save_model_freq = 1
+        self.save_model_freq = 10
         self.image_dims = (3, 256, 256)
 
         self.train_data_dir = "/home/iisc/zsd/project/VG2SC/MMEB-Datasets/MMEB-Datasets/MMEB-train"
@@ -113,6 +116,8 @@ class Config:
         self.isTrain = args.training
         self.channel_number = int(args.C) if args.model in [
             'SwinJSCC_w/o_SAandRA', 'SwinJSCC_w/_SA'] else None
+        
+        self.pretrained = args.model_path if args.is_pretrained else None
 
         query_dim = 1536
 
@@ -173,14 +178,6 @@ def calculate_psnr(mse):
     if mse > 0:
         return 10 * (torch.log10(255. * 255. / mse))
     return 100
-
-
-def load_weights(net, model_path, device):
-    pretrained = torch.load(model_path, map_location=device)
-    model_dict = net.state_dict()
-    pretrained = {k: v for k, v in pretrained.items(
-    ) if k in model_dict and model_dict[k].size() == v.size()}
-    net.load_state_dict(pretrained, strict=False)
 
 
 def train_one_epoch(net, train_loader, optimizer, epoch, config, logger, writer, node_rank, global_step):
@@ -344,11 +341,30 @@ def test_epoch(net, test_loader, config, logger, writer, epoch, node_rank, args)
         logger.info("Finish Test!")
 
         save_2d_array_to_csv(results_psnr.tolist(),
-                             os.path.join(epoch_dir, 'psnr.csv'))
+                             os.path.join(epoch_dir, f'psnr_{epoch}.csv'))
         save_2d_array_to_csv(results_msssim.tolist(),
-                             os.path.join(epoch_dir, 'msssim.csv'))
+                             os.path.join(epoch_dir, f'msssim_{epoch}.csv'))
 
     return results_psnr.mean(), results_msssim.mean(), 0.0, results_cbr.mean()
+
+def load_weights(net, model_path):
+    if model_path is None or model_path == '':
+        print("No weights found. Training from scratch.")
+        return net
+    pretrained = torch.load(model_path)
+    new_state_dict = {}
+    for key, value in pretrained.items():
+        if key.startswith('module.'):
+            new_key = key[len('module.'):]
+            new_state_dict[new_key] = value
+        else:
+            new_state_dict[key] = value
+            
+    new_state_dict = {k: v for k, v in new_state_dict.items() if 'attn_mask' not in k}
+
+    net.load_state_dict(new_state_dict, strict=False)
+    return net
+
 
 
 def main(opts):
@@ -375,7 +391,11 @@ def main(opts):
 
     net = ConditionSwinJSCC(opts, config)
     net = net.to(device_id)
-    # Fix 模型中存在未被用于计算损失的参数
+    if config.pretrained:
+        if node_rank == 0:
+            logger.info(f"Loading pretrained model from {config.pretrained}")
+        net = load_weights(net, config.pretrained)
+
     net = DDP(net, device_ids=[device_id],
               output_device=device_id, find_unused_parameters=True)
 

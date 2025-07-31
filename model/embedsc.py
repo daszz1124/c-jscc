@@ -1,3 +1,4 @@
+# from model.con_decoder import *
 from model.decoder import *
 from model.con_encoder import *
 from loss.distortion import Distortion
@@ -53,7 +54,6 @@ class ConditionSwinJSCC(nn.Module):
             self.H = H
             self.W = W
 
-        # 选择信道参数与码率
         if given_SNR is None:
             SNR = choice(self.multiple_snr)
             chan_param = SNR
@@ -88,6 +88,7 @@ class ConditionSwinJSCC(nn.Module):
                 noisy_feature = feature
             noisy_feature = noisy_feature * mask
 
+        # recon_image = self.decoder(noisy_feature, chan_param, self.model,embedding_vector)
         recon_image = self.decoder(noisy_feature, chan_param, self.model)
         mse = self.squared_difference(
             input_image * 255., recon_image.clamp(0., 1.) * 255.)

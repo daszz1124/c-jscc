@@ -21,11 +21,13 @@ run_training() {
     local metric=$5
     local model_size=$6
     local dataset_name=$7
+    local epoch=$8
 
-    local work_dir="mmeb_condition_training/${TIMESTAMP}_C${c}_${channel_type}_snr${snr_set//,/_}_${model//\//_}_${metric}"
-    local log_file="mmeb_condition_training_logs/${TIMESTAMP}_C${c}_${channel_type}_snr${snr_set//,/_}_${model//\//_}_${metric}.log"
+    local work_dir="mmeb_condition_training/${dataset_name}/${TIMESTAMP}_C${c}_${channel_type}_snr${snr_set//,/_}_${model//\//_}_${metric}"
+    local log_file="mmeb_condition_training_logs/${dataset_name}/${TIMESTAMP}_C${c}_${channel_type}_snr${snr_set//,/_}_${model//\//_}_${metric}.log"
 
     mkdir -p "${work_dir}"
+    mkdir -p "$(dirname "${log_file}")"
 
     local start_time=$(date +%s)
     python -W ignore::FutureWarning:timm.models.layers ddp_con_train.py \
@@ -38,6 +40,7 @@ run_training() {
         --C "${c}" \
         --multiple-snr "${snr_set}" \
         --model_size "${model_size}" \
+        --epoch ${epoch} \
         --workdir "${work_dir}" 2>&1 | \
         tee -a "${log_file}"
 
@@ -54,8 +57,38 @@ run_experiment_set1() {
     local snr_set="1,4,7,10,13"
     local metric="MSE"
     local model_size="base"
-    local dataset_name="CIRR"
-    run_training "${c}" "${model}" "${channel_type}" "${snr_set}" "${metric}" "${model_size}" "${dataset_name}"
+    local dataset_name="VisDial"
+    local epoch=200
+    run_training "${c}" "${model}" "${channel_type}" "${snr_set}" "${metric}" "${model_size}" "${dataset_name}" ${epoch}
 }
 
-run_experiment_set1
+
+run_experiment_Stage1() {
+    local c="128,192"
+    local model="SwinJSCC_w/_SAandRA"
+    local channel_type="awgn"
+    local snr_set="1,4,7,10,13"
+    local metric="MSE"
+    local model_size="base"
+    local dataset_name="VisDial"
+    local epoch=200
+    run_training "${c}" "${model}" "${channel_type}" "${snr_set}" "${metric}" "${model_size}" "${dataset_name}" ${epoch}
+}
+
+run_experiment_Stage2() {
+    local c="32,64,96,128,192"
+    local model="SwinJSCC_w/_SAandRA"
+    local channel_type="awgn"
+    local snr_set="1,4,7,10,13"
+    local metric="MSE"
+    local model_size="base"
+    local dataset_name="VisDial"
+    local epoch=200
+    run_training "${c}" "${model}" "${channel_type}" "${snr_set}" "${metric}" "${model_size}" "${dataset_name}" ${epoch}
+}
+
+# run_experiment_set1
+# run_experiment_set1_stage2
+
+run_experiment_Stage1
+

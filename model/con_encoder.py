@@ -1,7 +1,6 @@
 from model.modules import *
 import torch
 
-
 class QueryEncoder(nn.Module):
     def __init__(self, query_dim, embed_dim):
         super().__init__()
@@ -171,7 +170,7 @@ class CrossAttentionBlock(nn.Module):
     def forward(self, x, cond):
         # x: [B, N, C], cond: [B, 1, C]
         x_norm = self.norm(x)
-        cross_out, _ = self.cross_attn(x_norm, cond, cond)
+        cross_out, _ = self.cross_attn(cond, x_norm, x_norm)
         return x + cross_out
 
 

@@ -87,7 +87,7 @@ class SwinJSCC_Decoder(nn.Module):
             layer = BasicLayer(dim=int(embed_dims[i_layer]),
                                out_dim=int(embed_dims[i_layer + 1]) if (i_layer < self.num_layers - 1) else 3,
                                input_resolution=(self.patches_resolution[0] * (2 ** i_layer),
-                                                 self.patches_resolution[1] * (2 ** i_layer)),
+                                                 self.patches_resolution[1] * (2 ** i_layer)),  
                                depth=depths[i_layer],
                                num_heads=num_heads[i_layer],
                                window_size=window_size,

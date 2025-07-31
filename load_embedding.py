@@ -1,4 +1,3 @@
-
 import os
 import pickle
 import torch
@@ -11,8 +10,8 @@ from typing import List, Tuple, Dict
 
 def load_embeddings(embed_path: str, subset: str) -> Tuple[np.ndarray, List[dict]]:
     """Load query and target embedding vectors and index information"""
-    encode_qry_path = os.path.join(embed_path, f"{subset}_qry")
-    encode_tgt_path = os.path.join(embed_path, f"{subset}_tgt")
+    encode_qry_path = os.path.join(f"{embed_path}", f"{subset}_qry")
+    encode_tgt_path = os.path.join(f"{embed_path}", f"{subset}_tgt")
 
     with open(encode_qry_path, 'rb') as f:
         qry_tensor, qry_index = pickle.load(f)
@@ -43,26 +42,45 @@ def change_embedding_dict_pkl(path: str) -> Dict[Tuple[str, str], np.ndarray]:
 
     with open(path, 'wb') as f:
         pickle.dump(modified_dict, f)
-        
-    print("modified_dict", modified_dict)
+
+    print(f"Modified {path} successfully")
 
     return modified_dict
 
 
 if __name__ == "__main__":
-    # qry_tensor, qry_index, tgt_tensor, tgt_index= load_embeddings("datasets/query_datasets/CIRR", "CIRR")
-    # save_embedding_dict_pkl("datasets/query_datasets/CIRR_qry.pkl", qry_tensor, qry_index)
-    # save_embedding_dict_pkl("datasets/query_datasets/CIRR_tgt.pkl", tgt_tensor, tgt_index)
 
-    # print(qry_index[0])
-    # print(qry_tensor[0])
-    # print(tgt_index[0])
-    # print(tgt_tensor[0])
+    datasets = ["NIGHTS", "VisDial", "VisualNews_t2i", "WebQA",]
 
-    # embedding = change_embedding_dict_pkl(
-    #     "/home/iisc/zsd/project/VG2SC/SwinJSCC/datasets/kodak/kodak_val_qwen2vl_embeddings.pickle")
+    base_path = "datasets/mmeb_traindatasets"
 
-    with open("/home/iisc/zsd/project/VG2SC/SwinJSCC/datasets/kodak/kodak_val_qwen2vl_embeddings.pickle", 'rb') as f:
-        original_dict = pickle.load(f)
-        
-    print(original_dict)
+    for dataset in datasets:
+        print(f"\nProcessing dataset: {dataset}")
+        dataset_path = os.path.join(base_path, dataset)
+        print("dataset_path", dataset_path)
+        if not os.path.exists(dataset_path):
+            print(f"Skipping {dataset}: Path not found")
+            continue
+
+        try:
+            qry_tensor, qry_index, tgt_tensor, tgt_index = load_embeddings(
+                dataset_path, dataset)
+
+            qry_pkl_path = os.path.join(dataset_path, f"{dataset}_qry.pkl")
+            tgt_pkl_path = os.path.join(dataset_path, f"{dataset}_tgt.pkl")
+
+            save_embedding_dict_pkl(qry_pkl_path, qry_tensor, qry_index)
+            save_embedding_dict_pkl(tgt_pkl_path, tgt_tensor, tgt_index)
+
+            print(f"qry_tensor shape: {qry_tensor.shape}")
+            print(f"qry_index length: {len(qry_index)}")
+            print(f"tgt_tensor shape: {tgt_tensor.shape}")
+            print(f"tgt_index length: {len(tgt_index)}")
+            if len(tgt_index) > 0:
+                print(f"tgt[0]: {tgt_index[0]}")
+
+            print(f"Finished processing {dataset}")
+
+        except Exception as e:
+            print(f"Error processing {dataset}: {str(e)}")
+            continue
