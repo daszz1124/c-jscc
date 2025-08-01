@@ -90,5 +90,9 @@ run_experiment_Stage2() {
 # run_experiment_set1
 # run_experiment_set1_stage2
 
-run_experiment_Stage1
+
+# VisDial Stage1
+# run_experiment_Stage1  * 从0 开始： mmeb_condition_training/VisDial/20250730_120021_C128,192_awgn_snr1_4_7_10_13_SwinJSCC_w__SAandRA_MSE/2025-07-30_12-00-27/models/2025-07-30_12-00-27_EP50.model
+# run_experiment_Stage1  * 最好的模型是 mmeb_condition_training/VisDial/20250730_230745_C128,192_awgn_snr1_4_7_10_13_SwinJSCC_w__SAandRA_MSE/2025-07-30_23-07-51/models/2025-07-30_23-07-51_EP80.model
+run_experiment_Stage2
 

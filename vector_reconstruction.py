@@ -11,6 +11,10 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
+import torch
+import torch.nn.functional as F
+
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 def argument_parser():
     """Argument parser for command line arguments."""
@@ -30,7 +34,7 @@ def argument_parser():
     parser.add_argument('--epoch', type=int, default=200,
                         help='Epochs for training')
     parser.add_argument('--batch_size', type=int,
-                        default=64, help='Batch size for training')
+                        default=1024, help='Batch size for training')
     parser.add_argument('--learning_rate', type=float, default=1e-3,
                         help='Learning rate for optimizer')
     parser.add_argument('--noise_std', type=float, default=0.1,
@@ -209,8 +213,6 @@ def train_epoch(model, dataloader, optimizer, mse_criterion, device):
 
 
 
-import torch
-import torch.nn.functional as F
 
 def get_pred(reconstructed_query: torch.Tensor, target_vectors: torch.Tensor, normalize: bool = True) -> Tuple[torch.Tensor, torch.Tensor]:
     """
@@ -260,7 +262,7 @@ def test_epoch(model, dataloader, device, normalization=True):
 
 def main():
     args = argument_parser()
-    device = torch.device('cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     train_base_dir = "/home/iisc/zsd/project/VG2SC/MMEB-Datasets/MMEB-Datasets/MMEB-train"
     test_base_dir = "/home/iisc/zsd/project/VG2SC/MMEB-Datasets/MMEB-Datasets/MMEB-eval"

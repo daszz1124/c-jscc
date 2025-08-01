@@ -38,3 +38,7 @@ mmeb_condition_training/
 
 ConSwinjscc_evaluation
 ConSwinjscc_evaluation_logs
+
+
+best_model/
+vector_reconstruction_save_path/
