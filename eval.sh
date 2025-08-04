@@ -50,7 +50,7 @@ run_evaluation_set1() {
     local snr_set="1,4,7,10,13"
     local metric="MSE"
     local model_size="base"
-    local model_path="mmeb_kodak_training/20250715_134416_C32,64,96,128,192_awgn_snr1_4_7_10_13_SwinJSCC_w__SAandRA_MSE/2025-07-15_13-44-23/models/2025-07-15_13-44-23_EP200.model"
+    local model_path="checkpoint/SwinJSCC w- SA&RA/SwinJSCC_w_SAandRA_AWGN_HRimage_cbr_psnr_snr.model"
     run_evaluation "${c}" "${model}" "${channel_type}" "${snr_set}" "${metric}" "${model_size}" "${model_path}"
 }
 

@@ -26,7 +26,7 @@ run_evaluation() {
 
     local start_time=$(date +%s)
     python -W ignore::FutureWarning:timm.models.layers eval.py \
-        --trainset MMEB_Kodak \
+        --testset MMEB \
         --model_path "${model_path}" \
         --distortion-metric "${metric}" \
         --model "${model}" \
@@ -34,7 +34,9 @@ run_evaluation() {
         --C "${c}" \
         --multiple-snr "${snr_set}" \
         --model_size "${model_size}" \
+        --dataset_name "NIGHTS" \
         --work_dir "${work_dir}" 2>&1 | \
+        
         tee -a "${log_file}"
 
     local end_time=$(date +%s)
@@ -55,5 +57,19 @@ run_evaluation_set1() {
 }
 
 
+run_evaluation_set2() {
+    local c="32,64,96,128,192"
+    local model="SwinJSCC_w/_SAandRA"
+    local channel_type="awgn"
+    local snr_set="1,4,7,10,13"
+    local metric="MSE"
+    local model_size="base"
+    local model_path="checkpoint/SwinJSCC w- SA&RA/SwinJSCC_w_SAandRA_AWGN_HRimage_cbr_psnr_snr.model"
+    run_evaluation "${c}" "${model}" "${channel_type}" "${snr_set}" "${metric}" "${model_size}" "${model_path}"
+}
 
-run_evaluation_set1
+
+
+run_evaluation_set2
+
+

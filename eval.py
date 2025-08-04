@@ -25,8 +25,8 @@ def parse_args():
                         choices=['Kodak', 'MMEB'], help='Train dataset name')
     parser.add_argument('--distortion-metric', type=str, default='MSE',
                         choices=['MSE', 'MS-SSIM'], help='trainset metric')
-    parser.add_argument('--dataset_name', type=str, default='CIRR',
-                        choices=['CIRR'],
+    parser.add_argument('--dataset_name', type=str, default='VisDial',
+                        choices=['CIRR','VisDial','NIGHTS'],
                         help='Dataset name for MMEB')
     parser.add_argument('--model', type=str, default='SwinJSCC_w/_SA',
                         choices=['SwinJSCC_w/o_SAandRA', 'SwinJSCC_w/_SA',
@@ -82,7 +82,7 @@ class Config:
             self.test_data_dir = [
                 "/home/iisc/zsd/project/VG2SC/SwinJSCC/datasets/kodak/"]
 
-        self.batch_size = 1
+        self.batch_size = 16
         self.downsample = 4
         self.channel_number = int(args.C) if args.model in [
             'SwinJSCC_w/o_SAandRA', 'SwinJSCC_w/_SA'] else None
@@ -206,16 +206,25 @@ def test(net, test_loader, config, logger, args):
                         f'Test SNR={test_snr}, Rate={rate} with image  {names[0]}: {log}')
 
                     if args.testset == 'Kodak':
-                        image_name = names[0][:-4] + \
-                            f"regon_psnr{psnr:.5f}_msssim{msssim:.5f}.png"
-                        torchvision.utils.save_image(recon_image, os.path.join(
-                            test_samples_dir, image_name))
+                        for k in range(recon_image.shape[0]):  # 遍历 batch 中的每个样本
+                            # 用批量中的第 k 个文件名
+                            image_name = names[k][:-4] + f"_regon_psnr{psnr:.5f}_msssim{msssim:.5f}.png"
+                            torchvision.utils.save_image(
+                                recon_image[k],  # 取第 k 个重构图
+                                os.path.join(test_samples_dir, image_name)
+                            )
                     else:
-                        dataset_name = names[0].split('/')[0]
-                        os.makedirs(os.path.join(test_samples_dir,dataset_name), exist_ok=True)
-                        if psnr > 30:
-                            torchvision.utils.save_image(recon_image, os.path.join(
-                            test_samples_dir, dataset_name, names[0].split('/')[-1][:-4] + f"_regon_psnr{psnr:.5f}_msssim{msssim:.5f}.png"))
+                        dataset_name = args.dataset_name
+                        os.makedirs(os.path.join(test_samples_dir, dataset_name), exist_ok=True)
+                        if psnr > 35:  # 批量平均 PSNR 达标时保存
+                            for k in range(recon_image.shape[0]):
+                                torchvision.utils.save_image(
+                                    recon_image[k],
+                                    os.path.join(
+                                        test_samples_dir, dataset_name, 
+                                        names[k][:-4] + f"_regon_psnr{psnr:.5f}_msssim{msssim:.5f}.png"
+                                    )
+                                )
 
                 results_snr[i, j] = snrs.avg
                 results_cbr[i, j] = cbrs.avg
@@ -251,7 +260,7 @@ def main(opts):
     if config.device.type == 'cuda':
         logger.info(config.__dict__)
 
-    _, test_dataset = select_dataset_mmeb(opts, config)
+    _, test_dataset = load_source_dataset_mmeb(opts, config)
     test_loader = DataLoader(
         test_dataset, batch_size=1, shuffle=False,
         num_workers=opts.num_workers, pin_memory=True

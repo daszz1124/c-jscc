@@ -42,3 +42,6 @@ ConSwinjscc_evaluation_logs
 
 best_model/
 vector_reconstruction_save_path/
+vector_reconstruction/
+Swinjscc_evaluation/
+Swinjscc_evaluation_logs/

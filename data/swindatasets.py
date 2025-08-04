@@ -145,14 +145,14 @@ class TESTDatasets(Dataset):
 
 
 def select_dataset(args, config):
-    if args.trainset == 'DIV2K':
+    if args.testset == 'DIV2K':
         train_dataset = HRDataset(config.train_data_dir)
         test_dataset = TESTDatasets(config.test_data_dir)
         return train_dataset, test_dataset
 
 
 def select_dataset_mmeb(args, config):
-    if args.trainset == 'MMEB':
+    if args.testset == 'MMEB':
         train_dataset = MMEBTrainDataset(
             base_dir=config.train_data_dir,
             dataset_name=args.dataset_name,
@@ -168,7 +168,7 @@ def select_dataset_mmeb(args, config):
             transform=None
         )
         return train_dataset, test_dataset
-    if args.trainset == 'MMEB_Kodak':
+    if args.testset == 'MMEB_Kodak':
         train_dataset = MMEBTrainDataset(
             base_dir=config.train_data_dir,
             dataset_name=args.dataset_name,
@@ -179,4 +179,4 @@ def select_dataset_mmeb(args, config):
         test_dataset = TESTDatasets(config.test_data_dir)
         return train_dataset, test_dataset
     else:
-        raise ValueError(f"Unsupported dataset: {args.trainset}")
+        raise ValueError(f"Unsupported dataset: {args.testset}")

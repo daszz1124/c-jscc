@@ -19,6 +19,7 @@ from torch.utils.tensorboard import SummaryWriter
 from loss.distortion import MS_SSIM
 from model.embedsc import ConditionSwinJSCC
 from data.mmeb_datasets import *
+from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau
 import csv
 
 from utils import logger_configuration, save_model, seed_torch
@@ -27,6 +28,7 @@ warnings.filterwarnings("ignore", category=FutureWarning,
                         module="timm.models.layers")
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description='SwinJSCC')
@@ -37,7 +39,7 @@ def parse_args():
     parser.add_argument('--testset', type=str, default='Kodak',
                         choices=['Kodak', 'MMEB'], help='Train dataset name')
     parser.add_argument('--dataset_name', type=str, default='CIRR',
-                        choices=['CIRR', 'VisDial'],
+                        choices=['CIRR', 'VisDial', 'NIGHTS'],
                         help='Dataset name for MMEB')
     parser.add_argument('--distortion-metric', type=str, default='MSE',
                         choices=['MSE', 'MS-SSIM'], help='Evaluation metric')
@@ -61,7 +63,7 @@ def parse_args():
                         help='Batch size for training')
     parser.add_argument('--epochs', type=int, default=300,
                         help='Total training epochs')
-    parser.add_argument('--lr', type=float, default=0.0001,
+    parser.add_argument('--lr', type=float, default=0.001,
                         help='Learning rate')
     parser.add_argument('--num_workers', type=int, default=4,
                         help='Number of data loader workers')
@@ -116,7 +118,7 @@ class Config:
         self.isTrain = args.training
         self.channel_number = int(args.C) if args.model in [
             'SwinJSCC_w/o_SAandRA', 'SwinJSCC_w/_SA'] else None
-        
+
         self.pretrained = args.model_path if args.is_pretrained else None
 
         query_dim = 1536
@@ -345,7 +347,8 @@ def test_epoch(net, test_loader, config, logger, writer, epoch, node_rank, args)
         save_2d_array_to_csv(results_msssim.tolist(),
                              os.path.join(epoch_dir, f'msssim_{epoch}.csv'))
 
-    return results_psnr.mean(), results_msssim.mean(), 0.0, results_cbr.mean()
+    return results_psnr.mean(), results_msssim.mean(), 0.0, results_cbr.mean(), results_psnr
+
 
 def load_weights(net, model_path):
     if model_path is None or model_path == '':
@@ -359,12 +362,12 @@ def load_weights(net, model_path):
             new_state_dict[new_key] = value
         else:
             new_state_dict[key] = value
-            
-    new_state_dict = {k: v for k, v in new_state_dict.items() if 'attn_mask' not in k}
+
+    new_state_dict = {k: v for k, v in new_state_dict.items()
+                      if 'attn_mask' not in k}
 
     net.load_state_dict(new_state_dict, strict=False)
     return net
-
 
 
 def main(opts):
@@ -402,27 +405,46 @@ def main(opts):
     # Optimizer
     model_params = [{'params': net.parameters(), 'lr': config.learning_rate}]
     optimizer = optim.Adam(model_params, lr=config.learning_rate)
-    lr_scheduler = optim.lr_scheduler.MultiStepLR(
-        optimizer, milestones=[1000, 2000, 3000], gamma=0.5)
+
+    # lr_scheduler = optim.lr_scheduler.MultiStepLR(
+    #     optimizer, milestones=[20, 40, 60,80], gamma=0.5)
+
+    schedulers = {
+        "step": StepLR(optimizer, step_size=50, gamma=0.5),
+        "PSNR": ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=10, verbose=True, min_lr=1e-6),
+        "Msssim": ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=10, verbose=True, min_lr=1e-6),
+    }
+
+    scheduler = schedulers["PSNR"]
+
+    best_psnr = 0
 
     global_step = [0]
     for epoch in range(config.tot_epoch):
         train_loader.sampler.set_epoch(epoch)
         global_step[0] = train_one_epoch(
             net, train_loader, optimizer, epoch, config, logger, writer, node_rank, global_step)
-        lr_scheduler.step()
 
-        if (epoch + 1) % config.save_model_freq == 0:
-            if node_rank == 0:
+        # lr_scheduler.step()
+
+        if node_rank == 0:
+            mean_psnr, mean_ms_ssim, _, mean_cbr, psnr_list = test_epoch(
+                net, test_loader, config, logger, writer, epoch, node_rank, opts)
+            logger.info(
+                f'Epoch {epoch + 1}: PSNR: {mean_psnr:.4f}, MS-SSIM: {mean_ms_ssim:.4f}, CBR: {mean_cbr:.4f}')
+            scheduler.step(mean_psnr)
+            if psnr_list[-1][-1] > best_psnr:
+                best_psnr = psnr_list[-1][-1]
+                save_model(
+                    net, save_path=f"{config.models}/{config.filename}_BEP{epoch + 1}_Snr13_rate192_best_psnr_{psnr_list[-1][-1]}.model")
+
+            if (epoch + 1) % config.save_model_freq == 0:
                 save_model(
                     net, save_path=f"{config.models}/{config.filename}_EP{epoch + 1}.model")
-                mean_psnr, mean_ms_ssim, _, mean_cbr = test_epoch(
-                    net, test_loader, config, logger, writer, epoch, node_rank, opts)
-                logger.info(
-                    f'Epoch {epoch + 1}: PSNR: {mean_psnr:.4f}, MS-SSIM: {mean_ms_ssim:.4f}, CBR: {mean_cbr:.4f}')
-            else:
-                mean_psnr, mean_ms_ssim, _, mean_cbr = test_epoch(
-                    net, test_loader, config, logger, writer, epoch, node_rank, opts)
+
+        else:
+            mean_psnr, mean_ms_ssim, _, mean_cbr, _ = test_epoch(
+                net, test_loader, config, logger, writer, epoch, node_rank, opts)
 
         dist.barrier()
         torch.cuda.empty_cache()

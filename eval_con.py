@@ -20,7 +20,7 @@ import time
 warnings.filterwarnings("ignore", category=FutureWarning,
                         module="timm.models.layers")
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
 
 def save_2d_array_to_csv(array, filename):
     with open(filename, 'w', newline='') as csvfile:
@@ -35,7 +35,7 @@ def parse_args():
     parser.add_argument('--distortion-metric', type=str, default='MSE',
                         choices=['MSE', 'MS-SSIM'], help='trainset metric')
     parser.add_argument('--dataset_name', type=str, default='CIRR',
-                        choices=['CIRR','VisDial'],
+                        choices=['CIRR','VisDial','NIGHTS'],
                         help='Dataset name for MMEB')
     parser.add_argument('--model', type=str, default='SwinJSCC_w/_SAandRA',
                         choices=['SwinJSCC_w/o_SAandRA', 'SwinJSCC_w/_SA',
@@ -50,7 +50,7 @@ def parse_args():
     parser.add_argument('--model_size', type=str, default='base',
                         choices=['small', 'base', 'large'], help='SwinJSCC model size')
     parser.add_argument('--model_path', type=str,
-                        default="mmeb_condition_training/VisDial/20250729_224638_C128,192_awgn_snr1_4_7_10_13_SwinJSCC_w__SAandRA_MSE/2025-07-29_22-46-45/models/2025-07-29_22-46-45_EP90.model")
+                        default="")
     parser.add_argument('--work_dir', type=str, default='./eval_results',
                         help='Path to save test images')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
@@ -213,7 +213,7 @@ def test(net, test_loader, config, logger, args):
                             0., 1.)).mean().item()
                     msssims.update(msssim)
                     log = (' | '.join([
-                        f'Step [{batch_idx + 1}/{len(test_loader)}]',
+                        f'Batch [{batch_idx + 1}/{len(test_loader)}]',
                         f'Time {elapsed.val:.3f}s',
                         f'PSNR {psnrs.val:.3f} ({psnrs.avg:.3f})',
                         f'MSSSIM {msssims.val:.3f} ({msssims.avg:.3f})',
@@ -222,17 +222,24 @@ def test(net, test_loader, config, logger, args):
                         f'Test SNR={test_snr}, Rate={rate} with image  {names[0]}: {log}')
 
                     if args.testset == 'Kodak':
-                        image_name = names[0][:-4] + \
-                            f"regon_psnr{psnr:.5f}_msssim{msssim:.5f}.png"
-                        torchvision.utils.save_image(recon_image, os.path.join(
-                            test_samples_dir, image_name))
+                       for k in range(recon_image.shape[0]):  
+                            image_name = names[k][:-4] + f"_regon_psnr{psnr:.5f}_msssim{msssim:.5f}.png"
+                            torchvision.utils.save_image(
+                                recon_image[k],  
+                                os.path.join(test_samples_dir, image_name)
+                            )
                     else:
                         dataset_name = args.dataset_name
-                        os.makedirs(os.path.join(test_samples_dir,
-                                    dataset_name), exist_ok=True)
-                        if psnr > 35:
-                            torchvision.utils.save_image(recon_image, os.path.join(
-                                test_samples_dir, dataset_name, names[0][:-4] + f"_regon_psnr{psnr:.5f}_msssim{msssim:.5f}.png"))
+                        os.makedirs(os.path.join(test_samples_dir, dataset_name), exist_ok=True)
+                        if psnr > 35: 
+                            for k in range(recon_image.shape[0]):
+                                torchvision.utils.save_image(
+                                    recon_image[k],
+                                    os.path.join(
+                                        test_samples_dir, dataset_name, 
+                                        names[k][:-4] + f"_regon_psnr{psnr:.5f}_msssim{msssim:.5f}.png"
+                                    )
+                                )
 
                 results_snr[i, j] = snrs.avg
                 results_cbr[i, j] = cbrs.avg
@@ -278,7 +285,7 @@ def main(opts):
 
     _, test_dataset = select_dataset_mmeb(opts, config)
     test_loader = DataLoader(
-        test_dataset, batch_size=1, shuffle=False,
+        test_dataset, batch_size=config.batch_size, shuffle=False,
         num_workers=opts.num_workers, pin_memory=True
     )
 

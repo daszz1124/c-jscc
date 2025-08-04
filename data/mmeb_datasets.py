@@ -357,3 +357,34 @@ def select_dataset_mmeb(args, config):
         return train_dataset, test_dataset
     else:
         raise ValueError(f"Unsupported dataset: {args.trainset}")
+
+
+def load_source_dataset_mmeb(args, config):
+    if args.testset == 'MMEB':
+        train_dataset = MMEBTrainDataset(
+            base_dir=config.train_data_dir,
+            dataset_name=args.dataset_name,
+            image_dir=config.image_dir,
+            split='original',
+            transform=None
+        )
+
+        test_dataset = MMEBTestDataset(
+            base_dir=config.test_data_dir,
+            dataset_name=args.dataset_name,
+            image_dir=config.test_image_dir,
+            split='test',
+        )
+        return train_dataset, test_dataset
+    if args.testset == 'Kodak':
+        train_dataset = MMEBTrainDataset(
+            base_dir=config.train_data_dir,
+            dataset_name=args.dataset_name,
+            image_dir=config.image_dir,
+            split='original',
+            transform=None
+        )
+        test_dataset = TESTDatasets(config.test_data_dir)
+        return train_dataset, test_dataset
+    else:
+        raise ValueError(f"Unsupported dataset: {args.trainset}")
