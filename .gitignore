@@ -45,3 +45,6 @@ vector_reconstruction_save_path/
 vector_reconstruction/
 Swinjscc_evaluation/
 Swinjscc_evaluation_logs/
+
+Vector_compress/
+EmbedSC-Ⅰ/

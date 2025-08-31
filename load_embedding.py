@@ -50,9 +50,9 @@ def change_embedding_dict_pkl(path: str) -> Dict[Tuple[str, str], np.ndarray]:
 
 if __name__ == "__main__":
 
-    datasets = ["NIGHTS", "VisDial", "VisualNews_t2i", "WebQA",]
+    datasets = ["NIGHTS", "VisDial", "VisualNews_t2i", "WebQA","CIRR","MSCOCO_t2i"]
 
-    base_path = "datasets/mmeb_traindatasets"
+    base_path = "datasets/diverse_instruction"
 
     for dataset in datasets:
         print(f"\nProcessing dataset: {dataset}")

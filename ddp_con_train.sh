@@ -32,7 +32,7 @@ run_training() {
     local start_time=$(date +%s)
     python -W ignore::FutureWarning:timm.models.layers ddp_con_train.py \
         --training \
-        --testset Kodak \
+        --testset MMEB \
         --dataset_name "${dataset_name}" \
         --distortion-metric "${metric}" \
         --model "${model}" \
@@ -71,7 +71,7 @@ run_experiment_Stage1() {
     local metric="MSE"
     local model_size="base"
     local dataset_name="NIGHTS"
-    local epoch=200
+    local epoch=1000
     run_training "${c}" "${model}" "${channel_type}" "${snr_set}" "${metric}" "${model_size}" "${dataset_name}" ${epoch}
 }
 
@@ -98,6 +98,25 @@ run_experiment_Stage2() {
 
 
 # 
-
 run_experiment_Stage1
 
+# pretrained channel 192
+# mmeb_condition_training/NIGHTS/20250806_214619_C192_awgn_snr1_4_7_10_13_SwinJSCC_w__SAandRA_MSE/2025-08-06_21-46-25/models/checkpoint_ep130_snr_13_rate_192_best_psnr_33.2674.pth
+
+# pretrained channel 128,192
+#  mmeb_condition_training/NIGHTS/20250807_142000_C128,192_awgn_snr1_4_7_10_13_SwinJSCC_w__SAandRA_MSE/2025-08-07_14-20-06/models/checkpoint_ep0_snr_13_rate_192_best_psnr_33.1316.pth
+
+# pretrained channel 128,192
+# mmeb_condition_training/NIGHTS/20250811_234122_C128,192_awgn_snr1_4_7_10_13_SwinJSCC_w__SAandRA_MSE/2025-08-11_23-41-29/models/checkpoint_ep190_snr_1_rate_192_best_psnr_28.3732.pth
+
+
+# WebQA
+
+# mmeb_condition_training/WebQA/20250821_225958_C192_awgn_snr13_SwinJSCC_w__SAandRA_MSE/2025-08-21_23-00-04/models/checkpoint_ep280_snr_13_rate_192_best_psnr_34.5535.pth
+
+# channel 192，snr 13
+# mmeb_condition_training/WebQA/20250824_195700_C192_awgn_snr13_SwinJSCC_w__SAandRA_MSE/2025-08-24_19-57-06/models/checkpoint_ep460_snr_13_rate_192_best_psnr_34.8860.pth
+
+
+
+# run_experiment_set1

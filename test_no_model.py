@@ -14,12 +14,10 @@ from tqdm import tqdm
 import torch
 import torch.nn.functional as F
 from torch.optim.lr_scheduler import StepLR,ReduceLROnPlateau
+from torch.utils.data import ConcatDataset
 
 from datetime import datetime
 from torch.utils.tensorboard import SummaryWriter
-
-
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 
 def argument_parser():
@@ -29,11 +27,11 @@ def argument_parser():
     )
     parser.add_argument('--dataset_name', type=str, default='VisDial',
                         help='Dataset name folder under base_dir',
-                        choices=['CIRR', 'VisDial'])
+                        choices=['CIRR', 'VisDial','NIGHTS','VisualNews_t2i','WebQA'])
     parser.add_argument('--split', type=str, default='original',
                         choices=['original', 'diverse_instruction', 'test'],
                         help='Dataset split to load')
-    parser.add_argument('--latent_dim', type=int, default=256,
+    parser.add_argument('--latent_dim', type=int, default=192,
                         help='Latent bottleneck dimension for the compressor model')
     parser.add_argument('--save_dir', type=str, default="vector_reconstruction",
                         help='Path to save the trained model')
@@ -43,15 +41,15 @@ def argument_parser():
                         default=1024, help='Batch size for training')
     parser.add_argument('--learning_rate', type=float, default=1e-3,
                         help='Learning rate for optimizer')
-    parser.add_argument('--noise_std', type=float, default=0.1,
+    parser.add_argument('--noise_std', type=float, default=None,
                         help='Stddev of Gaussian noise added during training')
-    parser.add_argument('--is_train', type=bool, default=True,
+    parser.add_argument('--is_train', type=bool, default=False,
                         help='True for training, False for evaluation')
     parser.add_argument('--alpha', type=float, default=0.5)
     parser.add_argument('--beta', type=float, default=1.0)
     parser.add_argument('--lambda_nce', type=float, default=1.0)
-    parser.add_argument('--scheduler', type=str, default="val_loss",
-                        choices=["val_loss", "step","val_acc"],)
+    parser.add_argument('--scheduler', type=str, default="val_acc",
+                        choices=["infonce_loss", "step","val_acc"],)
     return parser.parse_args()
 
 
@@ -146,25 +144,22 @@ class RobustReconstructionNet(nn.Module):
         self.noise_std = noise_std
 
         self.encoder = nn.Sequential(
-            nn.Linear(embed_dim, 1024),
-            nn.BatchNorm1d(1024),
+            nn.Linear(embed_dim, 768),
             nn.ReLU(),
-            nn.Linear(1024, 512),
-            nn.BatchNorm1d(512),
+            nn.Linear(768, 384),
             nn.ReLU(),
-            nn.Linear(512, bottleneck_dim),
-            nn.BatchNorm1d(bottleneck_dim),
-            nn.ReLU(),
+            nn.Linear(384, bottleneck_dim),
+            nn.BatchNorm1d(bottleneck_dim)
         )
 
         self.decoder = nn.Sequential(
-            nn.Linear(bottleneck_dim, 512),
-            nn.BatchNorm1d(512),
+            nn.Linear(bottleneck_dim, 384),
             nn.ReLU(),
-            nn.Linear(512, 1024),
-            nn.BatchNorm1d(1024),
+            nn.Linear(384, 768),
             nn.ReLU(),
-            nn.Linear(1024, embed_dim),
+            nn.Linear(768, embed_dim),
+            nn.BatchNorm1d(embed_dim)
+           
         )
 
     def forward(self, x):
@@ -182,6 +177,47 @@ class RobustReconstructionNet(nn.Module):
         x_recon = self.decoder(z)
         return x_recon
 
+class RobustLatentNet(nn.Module):
+    def __init__(self, embed_dim=1536, bottleneck_dim=256, noise_std=0.1):
+        super().__init__()
+        self.snr_db = noise_std
+
+        dims = [1536,1024, 768, 512, 384, 256, 192, 128, 96, 64, 32,16,8]
+
+        if bottleneck_dim not in dims:
+            raise ValueError(f"Unsupported bottleneck_dim: {bottleneck_dim}. Must be one of {dims}")
+
+        start_idx = dims.index(embed_dim)
+        end_idx = dims.index(bottleneck_dim)
+        layer_dims = dims[start_idx:end_idx + 1] 
+
+        layers = []
+        for i in range(len(layer_dims) - 1):
+            in_dim = layer_dims[i]
+            out_dim = layer_dims[i + 1]
+            layers.append(nn.Linear(in_dim, out_dim))
+            if i < len(layer_dims) - 2:
+                layers.append(nn.ReLU())
+
+        self.encoder = nn.Sequential(*layers, nn.BatchNorm1d(bottleneck_dim))
+        
+    def add_awgn(self, x):
+        if self.snr_db is None:
+            return x  
+        signal_power = x.pow(2).mean()
+        snr_linear = 10 ** (self.snr_db / 10)
+        noise_power = signal_power / snr_linear
+        noise_std = noise_power.sqrt()
+        noise = torch.randn_like(x) * noise_std
+        return x + noise
+
+    def forward(self, x,is_qry = True):
+        if self.training and (self.snr_db is not None and is_qry is not None):
+            x = self.add_awgn(x)
+
+        # z = self.encoder(x)
+        # return z
+        return x
 
 class ResidualBlock(nn.Module):
     """残差块，用于扩展模型同时同时不丢失信息"""
@@ -290,16 +326,17 @@ def train_epoch(model, dataloader, optimizer, device, args):
 
         optimizer.zero_grad()
         q_recon = model(query_vecs)
-        loss_recon = args.beta * \
-            combined_recon_loss(q_recon, query_vecs, args.alpha)
-        loss_nce = args.lambda_nce * info_nce_loss(q_recon, target_vecs)
-        loss = loss_recon + loss_nce
-
+        t_recon = model(target_vecs,is_qry=False)
+        
+        # loss_recon = args.beta * \
+        #     combined_recon_loss(q_recon, query_vecs, args.alpha)
+            
+        loss_nce = args.lambda_nce * info_nce_loss(q_recon, t_recon)
+        loss = loss_nce
         loss.backward()
         optimizer.step()
 
         total_loss += loss.item() * query_vecs.size(0)
-        total_recon += loss_recon.item() * query_vecs.size(0)
         total_nce += loss_nce.item() * query_vecs.size(0)
 
     size = len(dataloader.dataset)
@@ -331,24 +368,27 @@ def test_epoch(model, dataloader, device, args, normalization=True):
     total = 0
 
     real_correct = 0
-    total_recon = 0.0
 
     for batch in dataloader:
         qry_vec = batch[0].to(device)
         tgt_vec = batch[1].to(device)
 
         recon_qry = model(qry_vec)
-
-        loss_recon = args.beta * \
-            combined_recon_loss(qry_vec, recon_qry, args.alpha)
-        total_recon += loss_recon.item() * qry_vec.size(0)
-
+        
+        recon_tgts = []
+        for tgt in tgt_vec:
+            recon_tgt = model(tgt,is_qry=False)
+            recon_tgts.append(recon_tgt)
+            
+        recon_tgts = torch.stack(recon_tgts, dim=0) 
+            
         B, M, D = tgt_vec.shape
+        
         recon_qry = recon_qry.unsqueeze(1)
         qry_vec = qry_vec.unsqueeze(1)
 
-        _, preds = get_pred(recon_qry, tgt_vec)
-        correct += torch.sum(preds == 0).item()  # reconstruction accuracy
+        _, preds = get_pred(recon_qry, recon_tgts)
+        correct += torch.sum(preds == 0).item()  
 
         _, real_preds = get_pred(qry_vec, tgt_vec)
         real_correct += torch.sum(real_preds == 0).item()  # grounding accuracy
@@ -359,13 +399,58 @@ def test_epoch(model, dataloader, device, args, normalization=True):
     real_acc = real_correct / total
 
     size = len(dataloader.dataset)
-    return acc, real_acc, total_recon / size
+    return acc, real_acc
+
+
+def add_awgn(snr_db,x):
+    signal_power = x.pow(2).mean()
+    snr_linear = 10 ** (snr_db / 10)
+    noise_power = signal_power / snr_linear
+    noise_std = noise_power.sqrt()
+    noise = torch.randn_like(x) * noise_std
+    return x + noise
+
+def test_no_model(dataloader, device, args, normalization=True):
+    correct = 0
+    total = 0
+
+    real_correct = 0
+
+    for batch in dataloader:
+        qry_vec = batch[0].to(device)
+        tgt_vec = batch[1].to(device)
+        recon_qry = add_awgn(args.noise_std, qry_vec)
+        
+        recon_tgts = []
+        for tgt in tgt_vec:
+            recon_tgts.append(tgt)
+            
+        recon_tgts = torch.stack(recon_tgts, dim=0) 
+            
+        B, M, D = tgt_vec.shape
+        
+        recon_qry = recon_qry.unsqueeze(1)
+        qry_vec = qry_vec.unsqueeze(1)
+
+        _, preds = get_pred(recon_qry, recon_tgts)
+        correct += torch.sum(preds == 0).item()  
+
+        _, real_preds = get_pred(qry_vec, tgt_vec)
+        real_correct += torch.sum(real_preds == 0).item()  # grounding accuracy
+
+        total += B
+
+    acc = correct / total
+    real_acc = real_correct / total
+
+    size = len(dataloader.dataset)
+    return acc, real_acc
 
 
 def main():
     args = argument_parser()
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
     train_base_dir = "/home/iisc/zsd/project/VG2SC/MMEB-Datasets/MMEB-Datasets/MMEB-train"
     test_base_dir = "/home/iisc/zsd/project/VG2SC/MMEB-Datasets/MMEB-Datasets/MMEB-eval"
 
@@ -384,7 +469,7 @@ def main():
         base_dir=train_base_dir,
         dataset_name=args.dataset_name,
         split=args.split,
-        sample_size=None if args.split == 'test' else 20000
+        sample_size=None
     )
 
     test_datasets = MMEBEmbeddingOnlyDataset(
@@ -394,12 +479,6 @@ def main():
         sample_size=None
     )
 
-    traindataloader = DataLoader(
-        train_dataset,
-        batch_size=args.batch_size,
-        shuffle=True,
-        num_workers=4
-    )
 
     testdataloader = DataLoader(
         test_datasets,
@@ -408,93 +487,11 @@ def main():
         num_workers=4
     )
 
-    model = RobustReconstructionNet1(
-        embed_dim=1536,
-        bottleneck_dim=args.latent_dim,
-        noise_std=args.noise_std
-    )
-
-    model.to(device)
-
-    optimizer = torch.optim.Adam(
-        model.parameters(), lr=args.learning_rate, weight_decay=1e-5)
-    
-    schedulers = {
-        "step": StepLR(optimizer, step_size=50, gamma=0.5),
-        "val_loss": ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=10, verbose=True, min_lr=1e-6),
-        "val_acc": ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=10, verbose=True, min_lr=1e-6),
-    }
-    
-    if args.beta == 0 or args.scheduler == "val_acc":
-        scheduler = schedulers["val_acc"]
-    elif args.scheduler == "val_loss":
-        scheduler = schedulers["val_loss"]
-    else:
-        scheduler = schedulers["step"]
-
-    best_model_path = os.path.join(work_dir, "best_model.pth")
-    best_acc = 0
-
-    if args.is_train:
-        print(f"Start training for {args.epoch} epochs")
-        for epoch in tqdm(range(args.epoch)):
-            loss, recon_loss, nce_loss = train_epoch(
-                model,
-                traindataloader,
-                optimizer,
-                device,
-                args
-            )
-
-            recon_acc, real_acc, val_recon_loss, = test_epoch(
-                model,
-                testdataloader,
-                device,
-                args
-            )
-
-            writer.add_scalar("Train/Total_Loss", loss, epoch)
-            writer.add_scalar("Train/Reconstruction_Loss", recon_loss, epoch)
-            writer.add_scalar("Train/InfoNCE_Loss", nce_loss, epoch)
-
-            writer.add_scalar("Test/Reconstruction_Accuracy", recon_acc, epoch)
-            writer.add_scalar("Test/GroundTruth_Accuracy", real_acc, epoch)
-            writer.add_scalar("Test/Reconstruction_Loss",
-                              val_recon_loss, epoch)
-
-            print(
-                f"Epoch {epoch+1}/{args.epoch} | "
-                f"Total Loss: {loss:.6f} | "
-                f"Recon Loss: {recon_loss:.6f} | "
-                f"InfoNCE Loss: {nce_loss:.6f} | "
-                f"Test recon loss: {val_recon_loss:.6f} | "
-                f"Recon Acc: {recon_acc}  | "
-                f"Real Acc: {real_acc} | "
-            )
-
-            
-            if args.scheduler == "val_acc" or args.beta == 0:
-                scheduler.step(recon_acc)
-            elif args.scheduler == "val_loss":
-                scheduler.step(val_recon_loss)
-            else:
-                scheduler.step()
-
-            if recon_acc > best_acc:
-                best_acc = recon_acc
-                torch.save(model.state_dict(), best_model_path)
-                print(f"✅ New best model saved with recon_acc = {recon_acc:.4f} to {best_model_path}")
-                
-            if epoch % 10 == 0:
-                model_path = f"{args.dataset_name}_loss{loss}_recon_acc{recon_acc}_epoch{epoch}.pt"
-                epoch_model_path = os.path.join(model_save_path, model_path)
-                torch.save(model.state_dict(), epoch_model_path)
-
-        writer.close()
-
-    else:
-        print("Evaluation mode not implemented yet")
-
+    recon_acc, real_acc = test_no_model(testdataloader, device, args)
+    print(
+        f"Recon Acc: {recon_acc}  | "
+        f"Real Acc: {real_acc} | "
+        )
 
 if __name__ == '__main__':
     main()
