@@ -56,14 +56,14 @@ def parse_args():
     parser.add_argument('--model_size', type=str, default='base',
                         choices=['small', 'base', 'large'], help='SwinJSCC model size')
     parser.add_argument('--model_path', type=str,
-                        default="mmeb_condition_training/WebQA/20250824_195700_C192_awgn_snr13_SwinJSCC_w__SAandRA_MSE/2025-08-24_19-57-06/models/checkpoint_ep460_snr_13_rate_192_best_psnr_34.8860.pth", help='SwinJSCC model path')
+                        default="mmeb_condition_training/NIGHTS/20250827_115741_C192_awgn_snr13_SwinJSCC_w__SAandRA_MSE/2025-08-27_11-57-48/models/checkpoint_ep860_snr_13_rate_192_best_psnr_33.8635.pth", help='SwinJSCC model path')
     parser.add_argument('--workdir', type=str, default='./workdir')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
     parser.add_argument('--batch_size', type=int, default=16,
                         help='Batch size for training')
     parser.add_argument('--epochs', type=int, default=300,
                         help='Total training epochs')
-    parser.add_argument('--lr', type=float, default=0.00001,
+    parser.add_argument('--lr', type=float, default=0.0001,
                         help='Learning rate')
     parser.add_argument('--num_workers', type=int, default=4,
                         help='Number of data loader workers')
