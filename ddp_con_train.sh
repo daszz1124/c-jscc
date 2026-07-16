@@ -22,6 +22,8 @@ run_training() {
     local model_size=$6
     local dataset_name=$7
     local epoch=$8
+    local test_multiple_snr=$9
+    local test_c=${10}
 
     local work_dir="mmeb_condition_training/${dataset_name}/${TIMESTAMP}_C${c}_${channel_type}_snr${snr_set//,/_}_${model//\//_}_${metric}"
     local log_file="mmeb_condition_training_logs/${dataset_name}/${TIMESTAMP}_C${c}_${channel_type}_snr${snr_set//,/_}_${model//\//_}_${metric}.log"
@@ -41,6 +43,8 @@ run_training() {
         --multiple-snr "${snr_set}" \
         --model_size "${model_size}" \
         --epoch ${epoch} \
+        --test_multiple_snr "${test_multiple_snr}" \
+        --test_C "${test_c}" \
         --workdir "${work_dir}" 2>&1 | \
         tee -a "${log_file}"
 
@@ -57,66 +61,40 @@ run_experiment_set1() {
     local snr_set="1,4,7,10,13"
     local metric="MSE"
     local model_size="base"
-    local dataset_name="VisDial"
-    local epoch=200
-    run_training "${c}" "${model}" "${channel_type}" "${snr_set}" "${metric}" "${model_size}" "${dataset_name}" ${epoch}
-}
-
-
-run_experiment_Stage1() {
-    local c="192"
-    local model="SwinJSCC_w/_SAandRA"
-    local channel_type="awgn"
-    local snr_set="13"
-    local metric="MSE"
-    local model_size="base"
     local dataset_name="NIGHTS"
     local epoch=1000
     run_training "${c}" "${model}" "${channel_type}" "${snr_set}" "${metric}" "${model_size}" "${dataset_name}" ${epoch}
 }
 
-run_experiment_Stage2() {
-    local c="32,64,96,128,192"
+
+run_experiment_Stage1() {
+    local c="8,16,32,64,96,128,192"
     local model="SwinJSCC_w/_SAandRA"
     local channel_type="awgn"
-    local snr_set="1,4,7,10,13"
+    local snr_set="10"
     local metric="MSE"
     local model_size="base"
-    local dataset_name="VisDial"
-    local epoch=200
-    run_training "${c}" "${model}" "${channel_type}" "${snr_set}" "${metric}" "${model_size}" "${dataset_name}" ${epoch}
+    local dataset_name="NIGHTS"
+    local epoch=500
+    local test_multiple_snr="10"
+    local test_c="8,32,96,128,192"
+    run_training "${c}" "${model}" "${channel_type}" "${snr_set}" "${metric}" "${model_size}" "${dataset_name}" "${epoch}" "${test_multiple_snr}" "${test_c}" 
 }
 
-# run_experiment_set1
-# run_experiment_set1_stage2
+run_experiment_Stage2() {
+    local c="128,192"
+    local model="SwinJSCC_w/_SAandRA"
+    local channel_type="awgn"
+    local snr_set="10"
+    local metric="MSE"
+    local model_size="base"
+    local dataset_name="NIGHTS"
+    local epoch=500
+    local test_multiple_snr="10"
+    local test_c="8,64,128,192"
+    run_training "${c}" "${model}" "${channel_type}" "${snr_set}" "${metric}" "${model_size}" "${dataset_name}" "${epoch}" "${test_multiple_snr}" "${test_c}" 
+}
 
 
-# VisDial Stage1
-# run_experiment_Stage1  * 从0 开始： mmeb_condition_training/VisDial/20250730_120021_C128,192_awgn_snr1_4_7_10_13_SwinJSCC_w__SAandRA_MSE/2025-07-30_12-00-27/models/2025-07-30_12-00-27_EP50.model
-# run_experiment_Stage1  * 最好的模型是 mmeb_condition_training/VisDial/20250730_230745_C128,192_awgn_snr1_4_7_10_13_SwinJSCC_w__SAandRA_MSE/2025-07-30_23-07-51/models/2025-07-30_23-07-51_EP80.model
-
-
-
-# 
-run_experiment_Stage1
-
-# pretrained channel 192
-# mmeb_condition_training/NIGHTS/20250806_214619_C192_awgn_snr1_4_7_10_13_SwinJSCC_w__SAandRA_MSE/2025-08-06_21-46-25/models/checkpoint_ep130_snr_13_rate_192_best_psnr_33.2674.pth
-
-# pretrained channel 128,192
-#  mmeb_condition_training/NIGHTS/20250807_142000_C128,192_awgn_snr1_4_7_10_13_SwinJSCC_w__SAandRA_MSE/2025-08-07_14-20-06/models/checkpoint_ep0_snr_13_rate_192_best_psnr_33.1316.pth
-
-# pretrained channel 128,192
-# mmeb_condition_training/NIGHTS/20250811_234122_C128,192_awgn_snr1_4_7_10_13_SwinJSCC_w__SAandRA_MSE/2025-08-11_23-41-29/models/checkpoint_ep190_snr_1_rate_192_best_psnr_28.3732.pth
-
-
-# WebQA
-
-# mmeb_condition_training/WebQA/20250821_225958_C192_awgn_snr13_SwinJSCC_w__SAandRA_MSE/2025-08-21_23-00-04/models/checkpoint_ep280_snr_13_rate_192_best_psnr_34.5535.pth
-
-# channel 192，snr 13
-# mmeb_condition_training/WebQA/20250824_195700_C192_awgn_snr13_SwinJSCC_w__SAandRA_MSE/2025-08-24_19-57-06/models/checkpoint_ep460_snr_13_rate_192_best_psnr_34.8860.pth
-
-
-
-# run_experiment_set1
+# run_experiment_Stage1
+run_experiment_Stage2

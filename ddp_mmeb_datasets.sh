@@ -21,6 +21,8 @@ run_training() {
     local metric=$5
     local model_size=$6
     local dataset_name=$7
+    local test_snr=$8
+    local test_c=$9
 
     local work_dir="mmeb_training/${TIMESTAMP}_C${c}_${channel_type}_snr${snr_set//,/_}_${model//\//_}_${metric}"
     local log_file="mmeb_training_logs/${TIMESTAMP}_C${c}_${channel_type}_snr${snr_set//,/_}_${model//\//_}_${metric}.log"
@@ -38,6 +40,8 @@ run_training() {
         --C "${c}" \
         --multiple-snr "${snr_set}" \
         --model_size "${model_size}" \
+        --test_snr "${test_snr}" \
+        --test_C "${test_c}" \
         --workdir "${work_dir}" 2>&1 | \
         tee -a "${log_file}"
 
@@ -48,14 +52,19 @@ run_training() {
 }
 
 run_experiment_set1() {
-    local c="32,64,96,128,192"
+    local c="64,96,128,192"
     local model="SwinJSCC_w/_SAandRA"
     local channel_type="awgn"
     local snr_set="1,4,7,10,13"
     local metric="MSE"
     local model_size="base"
-    local dataset_name="VisDial"
-    run_training "${c}" "${model}" "${channel_type}" "${snr_set}" "${metric}" "${model_size}" "${dataset_name}"
+    local dataset_name="NIGHTS"
+    local test_snr="10"
+    local test_c="8,32,96,192"
+    run_training "${c}" "${model}" "${channel_type}" "${snr_set}" "${metric}" "${model_size}" "${dataset_name}" "${test_snr}" "${test_c}"
 }
 
+
+
+# run_experiment_set2
 run_experiment_set1

@@ -26,15 +26,16 @@ import warnings
 warnings.filterwarnings("ignore", category=FutureWarning,
                         module="timm.models.layers")
 
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
 
 def parse_args():
     parser = argparse.ArgumentParser(description='SwinJSCC')
     parser.add_argument('--training', action='store_true',
                         default=False, help='Training or testing')
-    parser.add_argument('--testset', type=str, default='Kodak',
+    parser.add_argument('--testset', type=str, default='MMEB',
                         choices=['Kodak', 'MMEB'], help='Train dataset name')
     parser.add_argument('--dataset_name', type=str, default='CIRR',
-                        choices=['CIRR','VisDial'],
+                        choices=['CIRR','NIGHTS'],
                         help='Dataset name for MMEB')
     parser.add_argument('--distortion-metric', type=str, default='MSE',
                         choices=['MSE', 'MS-SSIM'], help='Evaluation metric')
@@ -44,21 +45,21 @@ def parse_args():
                         help='SwinJSCC model variant')
     parser.add_argument('--channel-type', type=str, default='awgn',
                         choices=['awgn', 'rayleigh'], help='Wireless channel model')
-    parser.add_argument('--C', type=str, default='96',
+    parser.add_argument('--C', type=str, default="32,64,96,128,192",
                         help='Bottleneck dimension (comma-separated for test)')
-    parser.add_argument('--multiple-snr', type=str, default='1,4,7,10,14',
+    parser.add_argument('--multiple-snr', type=str, default='1,4,7,10,13',
                         help='SNR values (comma-separated for test)')
     parser.add_argument('--model_size', type=str, default='base',
                         choices=['small', 'base', 'large'], help='SwinJSCC model size')
     parser.add_argument('--model_path', type=str,
-                        default="/home/iisc/zsd/project/VG2SC/SwinJSCC/checkpoint/SwinJSCC_w_SAandRA.model")
+                        default="mmeb_training/20250914_131750_C96,128,192_awgn_snr1_4_7_10_13_SwinJSCC_w__SAandRA_MSE/2025-09-14_13-17-59/models/2025-09-14_13-17-59_EP260.model", help='SwinJSCC model path')
     parser.add_argument('--workdir', type=str, default='./workdir')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
     parser.add_argument('--batch_size', type=int, default=16,
                         help='Batch size for training')
-    parser.add_argument('--epochs', type=int, default=300,
+    parser.add_argument('--epochs', type=int, default=400,
                         help='Total training epochs')
-    parser.add_argument('--lr', type=float, default=0.0001,
+    parser.add_argument('--lr', type=float, default=0.00001,
                         help='Learning rate')
     parser.add_argument('--num_workers', type=int, default=4,
                         help='Number of data loader workers')
@@ -66,6 +67,10 @@ def parse_args():
                         help='Port for distributed training')
     parser.add_argument('--print_step', type=int, default=100,
                         help='Frequency of logging during training')
+    parser.add_argument('--test_snr', type=str, default='1,4,7,10,13',
+                        help='SNR values (comma-separated for test)')
+    parser.add_argument('--test_C', type=str, default="32,64,96,128,192",
+                        help='test Bottleneck dimension (comma-separated for test)')
     return parser.parse_args()
 
 
@@ -90,19 +95,21 @@ class Config:
         os.makedirs(self.models, exist_ok=True)
         os.makedirs(self.tensorboard_dir, exist_ok=True)
 
+        self.pretrained = args.model_path if args.model_path else None
+
         self.normalize = False
         self.learning_rate = args.lr
         self.tot_epoch = args.epochs
-        self.save_model_freq = 1
+        self.save_model_freq = 10
         self.image_dims = (3, 256, 256)
 
-        self.train_data_dir = "/home/iisc/zsd/project/VG2SC/MMEB-Datasets/MMEB-Datasets/MMEB-train"
-        self.image_dir = "/home/iisc/zsd/project/VG2SC/MMEB-Datasets/trainning_images"
+        self.train_data_dir = "/mnt/d/zsd/project/c-jscc/datasets/vlm2vec/MMEB-Datasets/MMEB-train"
+        self.image_dir = "/mnt/d/zsd/project/c-jscc/datasets/vlm2vec/MMEB-Datasets/training_image"
         self.dataset_name = args.dataset_name
 
         if args.testset == "MMEB":
-            self.test_data_dir = "/home/iisc/zsd/project/VG2SC/MMEB-Datasets/MMEB-Datasets/MMEB-eval"
-            self.test_image_dir = "/home/iisc/zsd/project/VG2SC/MMEB-Datasets/eval_images"
+            self.test_data_dir = "/mnt/d/zsd/project/c-jscc/datasets/vlm2vec/MMEB-Test/MMEB-eval"
+            self.test_image_dir = "/mnt/d/zsd/project/c-jscc/datasets/vlm2vec/MMEB-Test/eval_image"
 
         elif args.testset == "Kodak":
             self.test_data_dir = [
@@ -172,13 +179,31 @@ def calculate_psnr(mse):
         return 10 * (torch.log10(255. * 255. / mse))
     return 100
 
+def load_weights(net, model_path):
+    if model_path is None or model_path == '':
+        print("No weights found. Training from scratch.")
+        return net
+    pretrained = torch.load(model_path)
+    new_state_dict = {}
+    for key, value in pretrained.items():
+        if key.startswith('module.'):
+            new_key = key[len('module.'):]
+            new_state_dict[new_key] = value
+        else:
+            new_state_dict[key] = value
 
-def load_weights(net, model_path, device):
-    pretrained = torch.load(model_path, map_location=device)
-    model_dict = net.state_dict()
-    pretrained = {k: v for k, v in pretrained.items(
-    ) if k in model_dict and model_dict[k].size() == v.size()}
-    net.load_state_dict(pretrained, strict=False)
+    new_state_dict = {k: v for k, v in new_state_dict.items()
+                      if 'attn_mask' not in k}
+
+    net.load_state_dict(new_state_dict, strict=False)
+    return net
+
+# def load_weights(net, model_path, device):
+#     pretrained = torch.load(model_path, map_location=device)
+#     model_dict = net.state_dict()
+#     pretrained = {k: v for k, v in pretrained.items(
+#     ) if k in model_dict and model_dict[k].size() == v.size()}
+#     net.load_state_dict(pretrained, strict=False)
 
 
 def train_one_epoch(net, train_loader, optimizer, epoch, config, logger, writer, node_rank, global_step):
@@ -256,8 +281,8 @@ def test_epoch(net, test_loader, config, logger, writer, epoch, node_rank, args)
     elapsed, psnrs, msssims, snrs, cbrs = [AverageMeter() for _ in range(5)]
     metrics = [elapsed, psnrs, msssims, snrs, cbrs]
     CalcuSSIM = MS_SSIM(data_range=1., levels=4, channel=3).to(net.device)
-    multiple_snr = [int(snr) for snr in args.multiple_snr.split(",")]
-    channel_number = [int(c) for c in args.C.split(",")]
+    multiple_snr = [int(snr) for snr in args.test_snr.split(",")]
+    channel_number = [int(c) for c in args.test_C.split(",")]
     results_snr = np.zeros((len(multiple_snr), len(channel_number)))
     results_cbr = np.zeros((len(multiple_snr), len(channel_number)))
     results_psnr = np.zeros((len(multiple_snr), len(channel_number)))
@@ -356,7 +381,7 @@ def main(opts):
     if node_rank == 0:
         logger.info(config.__dict__)
 
-    train_dataset, test_dataset = select_dataset_mmeb(opts, config)
+    train_dataset, test_dataset = load_source_dataset_mmeb(opts, config)
     train_sampler = torch.utils.data.distributed.DistributedSampler(
         train_dataset, shuffle=True)
     train_loader = DataLoader(
@@ -375,6 +400,12 @@ def main(opts):
 
     net = SwinJSCC(opts, config)
     net = net.to(device_id)
+
+    if config.pretrained:
+        if node_rank == 0:
+            logger.info(f"Loading pretrained model from {config.pretrained}")
+        net = load_weights(net, config.pretrained)
+
     # Fix 模型中存在未被用于计算损失的参数
     net = DDP(net, device_ids=[device_id],
               output_device=device_id, find_unused_parameters=True)

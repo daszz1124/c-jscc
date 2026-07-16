@@ -2,8 +2,8 @@
 # SwinJSCC 测试脚本 
 
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-mkdir -p "ConSwinjscc_evaluation_logs/NIGHTS/"
-mkdir -p "ConSwinjscc_evaluation/NIGHTS/"
+mkdir -p "ConSwinjscc_evaluation_logs/"
+mkdir -p "ConSwinjscc_evaluation/"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -18,16 +18,17 @@ run_evaluation() {
     local metric=$5
     local model_size=$6
     local model_path=$7
+    local dataset_name=$8
 
-    local work_dir="./ConSwinjscc_evaluation/NIGHTS/${TIMESTAMP}_C${c}_${channel_type}_snr${snr_set//,/_}_${model//\//_}_${metric}"
-    local log_file="./ConSwinjscc_evaluation_logs/NIGHTS/${TIMESTAMP}_C${c}_${channel_type}_snr${snr_set//,/_}_${model//\//_}_${metric}.log"
+    local work_dir="./ConSwinjscc_evaluation/${TIMESTAMP}_C${c}_${channel_type}_snr${snr_set//,/_}_${model//\//_}_${metric}"
+    local log_file="./ConSwinjscc_evaluation_logs/${TIMESTAMP}_C${c}_${channel_type}_snr${snr_set//,/_}_${model//\//_}_${metric}.log"
 
     mkdir -p "${work_dir}"
 
     local start_time=$(date +%s)
     python -W ignore::FutureWarning:timm.models.layers eval_con.py \
         --testset MMEB \
-        --dataset_name NIGHTS \
+        --dataset_name "${dataset_name}" \
         --model_path "${model_path}" \
         --distortion-metric "${metric}" \
         --model "${model}" \
@@ -45,15 +46,29 @@ run_evaluation() {
 }
 
 run_evaluation_set1() {
-    local c="128,192"
+    local c="16,32,64,96,128,192"
     local model="SwinJSCC_w/_SAandRA"
     local channel_type="awgn"
-    local snr_set="10,13"
+    local snr_set="1,4,7,10,13"
     local metric="MSE"
     local model_size="base"
-    local model_path="mmeb_condition_training/NIGHTS/20250803_162345_C192_awgn_snr13_SwinJSCC_w__SAandRA_MSE/2025-08-03_16-23-51/models/2025-08-03_16-23-51_EP200.model"
-    run_evaluation "${c}" "${model}" "${channel_type}" "${snr_set}" "${metric}" "${model_size}" "${model_path}"
+    local dataset_name=$1
+    local model_path=$2
+    run_evaluation "${c}" "${model}" "${channel_type}" "${snr_set}" "${metric}" "${model_size}" "${model_path}" "${dataset_name}"
 }
+
+run_evaluation_set2() {
+    local c="32,64,96,128,192"
+    local model="SwinJSCC_w/_SAandRA"
+    local channel_type="awgn"
+    local snr_set="1,4,7,10,13"
+    local metric="MSE"
+    local model_size="base"
+    local model_path="checkpoint/CIRR_SwinJSCC_w_SAandRA_AWGN_HRimage_cbr_msssim_snr_MLLM.model"
+    local dataset_name="NIGHTS"
+    run_evaluation "${c}" "${model}" "${channel_type}" "${snr_set}" "${metric}" "${model_size}" "${model_path}" "${dataset_name}"
+}
+
 
 
 # CIRR 数据集
@@ -80,4 +95,6 @@ run_evaluation_set1() {
 #NIGHTS pretrained : mmeb_condition_training/NIGHTS/20250803_162345_C192_awgn_snr13_SwinJSCC_w__SAandRA_MSE/2025-08-03_16-23-51/models/2025-08-03_16-23-51_EP200.model
 
 
-run_evaluation_set1
+run_evaluation_set1 "NIGHTS" "checkpoint/NIGHTS/NIGHTS_ep20_snr_13_rate_192_best_psnr_32.8548.pth"
+run_evaluation_set1 "NIGHTS" "checkpoint/NIGHTS/NIGHTS_ep490_snr_13_rate_192_best_psnr_33.2236.pth"
+run_evaluation_set1 "CIRR" "checkpoint/CIRR/CIRR_snr_13_rate_192_best_psnr_35.6359_mix.pth"

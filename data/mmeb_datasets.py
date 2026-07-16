@@ -127,7 +127,7 @@ class MMEBConditionTrainDataset(Dataset):
             raise FileNotFoundError(f"Parquet file not found: {parquet_path}")
 
         self.df = pd.read_parquet(parquet_path)
-        self.df = self.filter_valid_images(self.df, 'pos_image_path')
+        # self.df = self.filter_valid_images(self.df, 'pos_image_path')
 
         if self.sample_size is not None:
             indices = self.sample_indices(len(self.df), sample_size)
@@ -203,6 +203,7 @@ class MMEBConditionTrainDataset(Dataset):
             embedding_vector).unsqueeze(0).float()
 
         return post_image, embedding_vector, image_name
+
 
 
 class MMEBConditionTestDataset(Dataset):
@@ -359,6 +360,63 @@ def select_dataset_mmeb(args, config):
         raise ValueError(f"Unsupported dataset: {args.trainset}")
 
 
+class MMEBTestDatasetForEvalator(Dataset):
+    def __init__(self, base_dir, dataset_name, image_dir, split='test', transform=None):
+        self.base_dir = base_dir
+        self.dataset_name = dataset_name
+        self.split = split
+        self.image_dir = image_dir
+        self.file_map = {
+            'test': 'test-00000-of-00001.parquet'
+        }
+        if split not in self.file_map:
+            raise ValueError(f"Unsupported split: {split}")
+        self.data_dir = os.path.join(base_dir, dataset_name)
+        parquet_file = self.file_map[split]
+        parquet_path = os.path.join(self.data_dir, parquet_file)
+        if not os.path.exists(parquet_path):
+            raise FileNotFoundError(f"Parquet file not found: {parquet_path}")
+
+        self.df = pd.read_parquet(parquet_path)
+        self.embedding_map = self.load_embedding_dict_pkl(
+            f"datasets/mmeb_testdatasets/{self.dataset_name}/{self.dataset_name}_tgt.pkl")
+
+    def load_embedding_dict_pkl(self, path):
+        with open(path, 'rb') as f:
+            return pickle.load(f)
+
+    def __getitem__(self, idx):
+        row = self.df.iloc[idx]
+        qry_text = row["qry_text"]
+        qry_image_path = row["qry_img_path"]
+
+        tgt_text = row["tgt_text"][0]
+        tgt_image_path = row["tgt_img_path"][0]
+
+        embedding_vector = self.embedding_map[(tgt_text, tgt_image_path)]
+        qry_image_path = os.path.join(
+            self.image_dir, qry_image_path) if qry_image_path != "" else ""
+        tgt_image_path = os.path.join(self.image_dir, tgt_image_path)
+        image_name = os.path.basename(tgt_image_path)
+
+        image = Image.open(tgt_image_path).convert('RGB')
+        self.im_height, self.im_width = image.size
+        if self.im_height % 128 != 0 or self.im_width % 128 != 0:
+            self.im_height = self.im_height - self.im_height % 128
+            self.im_width = self.im_width - self.im_width % 128
+        self.transform = transforms.Compose([
+            transforms.CenterCrop((self.im_width, self.im_height)),
+            transforms.ToTensor()])
+        img = self.transform(image)
+        embedding_vector = torch.from_numpy(
+            embedding_vector).unsqueeze(0).float()
+
+        return img, embedding_vector, image_name, qry_text, qry_image_path, tgt_text, tgt_image_path
+
+    def __len__(self):
+        return len(self.df)
+
+
 def load_source_dataset_mmeb(args, config):
     if args.testset == 'MMEB':
         train_dataset = MMEBTrainDataset(
@@ -388,3 +446,107 @@ def load_source_dataset_mmeb(args, config):
         return train_dataset, test_dataset
     else:
         raise ValueError(f"Unsupported dataset: {args.trainset}")
+    
+def load_for_eval_dataset_mmeb(args, config):
+    if args.testset == 'MMEB':
+        train_dataset = MMEBTrainDataset(
+            base_dir=config.train_data_dir,
+            dataset_name=args.dataset_name,
+            image_dir=config.image_dir,
+            split='original',
+            transform=None
+        )
+
+        test_dataset = MMEBTestDatasetForEvalator(
+            base_dir=config.test_data_dir,
+            dataset_name=args.dataset_name,
+            image_dir=config.test_image_dir,
+            split='test',
+        )
+        return train_dataset, test_dataset
+    if args.testset == 'Kodak':
+        train_dataset = MMEBTrainDataset(
+            base_dir=config.train_data_dir,
+            dataset_name=args.dataset_name,
+            image_dir=config.image_dir,
+            split='original',
+            transform=None
+        )
+        test_dataset = TESTDatasets(config.test_data_dir)
+        return train_dataset, test_dataset
+    else:
+        raise ValueError(f"Unsupported dataset: {args.trainset}")
+
+
+
+class MMEBEmbeddingForAccuracy(Dataset):
+    def __init__(self, base_dir, image_dir,dataset_name, split='test'):
+        self.base_dir = base_dir
+        self.dataset_name = dataset_name
+        self.split = split
+        self.image_dir = image_dir
+        self.file_map = {
+            'test': 'test-00000-of-00001.parquet'
+        }
+
+        if split not in self.file_map:
+            raise ValueError(f"Unsupported split: {split}")
+
+        self.data_dir = os.path.join(base_dir, dataset_name)
+        parquet_file = self.file_map[split]
+        parquet_path = os.path.join(self.data_dir, parquet_file)
+        if not os.path.exists(parquet_path):
+            raise FileNotFoundError(f"Parquet file not found: {parquet_path}")
+
+        self.df = pd.read_parquet(parquet_path)
+
+        pkl_base_dir = "mmeb_traindatasets" if split != 'test' else "mmeb_testdatasets"
+
+        self.key_embedding_map = self.load_embedding_dict_pkl(
+            os.path.join("datasets", pkl_base_dir, dataset_name,
+                         f"{dataset_name}_tgt.pkl")
+        )
+        self.query_embedding_map = self.load_embedding_dict_pkl(
+            os.path.join("datasets", pkl_base_dir, dataset_name,
+                         f"{dataset_name}_qry.pkl")
+        )
+
+    def load_embedding_dict_pkl(self, path):
+        with open(path, 'rb') as f:
+            return pickle.load(f)
+
+    def __len__(self):
+        return len(self.df)
+
+    def __getitem__(self, idx):
+        row = self.df.iloc[idx]
+
+        query_text = row["qry_text"]
+        query_image_path = row["qry_img_path"]
+        pos_text = row["tgt_text"]
+        tgt_image_path = row["tgt_img_path"]
+
+        qry_image_path = os.path.join(self.image_dir, query_image_path) 
+
+        query_vector = self.query_embedding_map[(query_text, query_image_path)]
+        query_vector = torch.from_numpy(query_vector).float()
+
+        target_vectors = []
+        for text, img_path in zip(pos_text, tgt_image_path):
+            target_vector = self.key_embedding_map[(text, img_path)]
+            target_vector = torch.from_numpy(target_vector).float()
+            target_vectors.append(target_vector)
+        target_tensor = torch.stack(target_vectors)
+
+        image_name = os.path.basename(qry_image_path)
+        image = Image.open(qry_image_path).convert('RGB')
+        
+        self.im_height, self.im_width = image.size
+        if self.im_height % 128 != 0 or self.im_width % 128 != 0:
+            self.im_height = self.im_height - self.im_height % 128
+            self.im_width = self.im_width - self.im_width % 128
+        self.transform = transforms.Compose([
+            transforms.CenterCrop((self.im_width, self.im_height)),
+            transforms.ToTensor()])
+        img = self.transform(image)
+        return img,image_name,query_vector, target_tensor, query_text,qry_image_path

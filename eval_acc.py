@@ -9,26 +9,18 @@ import torchvision
 import numpy as np
 from pytorch_msssim import ms_ssim as ms_ssim_func
 from loss.distortion import MS_SSIM
-from model.embedsc import ConditionSwinJSCC
+from model.network import SwinJSCC
 from data.mmeb_datasets import *
 
 from utils import logger_configuration, seed_torch
 import warnings
-import csv
 import time
+import csv
 
-from vlm2vec_service import GenerateImageIntentEvaluator
+from vlm2vec_service import GenerateImageIntentEvaluator,get_pred
 
 warnings.filterwarnings("ignore", category=FutureWarning,
                         module="timm.models.layers")
-
-os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
-
-
-def save_2d_array_to_csv(array, filename):
-    with open(filename, 'w', newline='') as csvfile:
-        writer = csv.writer(csvfile)
-        writer.writerows(array)
 
 
 def parse_args():
@@ -37,23 +29,24 @@ def parse_args():
                         choices=['Kodak', 'MMEB'], help='Train dataset name')
     parser.add_argument('--distortion-metric', type=str, default='MSE',
                         choices=['MSE', 'MS-SSIM'], help='trainset metric')
-    parser.add_argument('--dataset_name', type=str, default='CIRR',
-                        choices=['CIRR', 'VisDial', 'NIGHTS','WebQA'],
+    parser.add_argument('--dataset_name', type=str, default='NIGHTS',
+                        choices=['CIRR', 'VisDial', 'NIGHTS',
+                                 'WebQA', 'VisualNews_t2i'],
                         help='Dataset name for MMEB')
-    parser.add_argument('--model', type=str, default='SwinJSCC_w/_SAandRA',
+    parser.add_argument('--model', type=str, default='SwinJSCC_w/_SA',
                         choices=['SwinJSCC_w/o_SAandRA', 'SwinJSCC_w/_SA',
                                  'SwinJSCC_w/_RA', 'SwinJSCC_w/_SAandRA'],
                         help='SwinJSCC model variant')
     parser.add_argument('--channel-type', type=str, default='awgn',
                         choices=['awgn', 'rayleigh'], help='Wireless channel model')
-    parser.add_argument('--C', type=str, default='32,64,96,128,192',
+    parser.add_argument('--C', type=str, default="96",
                         help='Bottleneck dimension (comma-separated for test)')
     parser.add_argument('--multiple-snr', type=str, default='1,4,7,10,13',
                         help='SNR values (comma-separated for test)')
     parser.add_argument('--model_size', type=str, default='base',
                         choices=['small', 'base', 'large'], help='SwinJSCC model size')
     parser.add_argument('--model_path', type=str,
-                        default="")
+                        default="checkpoint/Swinjscc/SwinJSCC_w_SAandRA_AWGN_HRimage_cbr_psnr_snr.model")
     parser.add_argument('--work_dir', type=str, default='./eval_results',
                         help='Path to save test images')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
@@ -84,7 +77,7 @@ class Config:
 
         self.image_dims = (3, 256, 256)
         self.train_data_dir = "/mnt/d/zsd/project/c-jscc/datasets/vlm2vec/MMEB-Datasets/MMEB-train"
-        self.image_dir = "/mnt/d/zsd/project/c-jscc/datasets/vlm2vec/MMEB-Datasets"
+        self.image_dir = "/mnt/d/zsd/project/c-jscc/datasets/vlm2vec/MMEB-Datasets/images"
         self.dataset_name = args.dataset_name
 
         if args.testset == "MMEB":
@@ -94,18 +87,16 @@ class Config:
             self.test_data_dir = [
                 "/home/iisc/zsd/project/VG2SC/SwinJSCC/datasets/kodak/"]
 
-        self.batch_size = 1
+        self.batch_size = 16
         self.downsample = 4
         self.channel_number = int(args.C) if args.model in [
             'SwinJSCC_w/o_SAandRA', 'SwinJSCC_w/_SA'] else None
-
-        query_dim = 1536
 
         model_configs = {
             'small': {
                 'encoder_kwargs': dict(img_size=self.image_dims[1:], patch_size=2, in_chans=3,
                                        embed_dims=[128, 192, 256, 320], depths=[2, 2, 2, 2], num_heads=[4, 6, 8, 10],
-                                       C=self.channel_number, query_dim=query_dim, window_size=8, mlp_ratio=4., qkv_bias=True,
+                                       C=self.channel_number, window_size=8, mlp_ratio=4., qkv_bias=True,
                                        norm_layer=nn.LayerNorm, patch_norm=True),
                 'decoder_kwargs': dict(img_size=self.image_dims[1:], embed_dims=[320, 256, 192, 128],
                                        depths=[2, 2, 2, 2], num_heads=[10, 8, 6, 4], C=self.channel_number,
@@ -114,7 +105,7 @@ class Config:
             'base': {
                 'encoder_kwargs': dict(img_size=self.image_dims[1:], patch_size=2, in_chans=3,
                                        embed_dims=[128, 192, 256, 320], depths=[2, 2, 6, 2], num_heads=[4, 6, 8, 10],
-                                       C=self.channel_number, query_dim=query_dim, window_size=8, mlp_ratio=4., qkv_bias=True,
+                                       C=self.channel_number, window_size=8, mlp_ratio=4., qkv_bias=True,
                                        norm_layer=nn.LayerNorm, patch_norm=True),
                 'decoder_kwargs': dict(img_size=self.image_dims[1:], embed_dims=[320, 256, 192, 128],
                                        depths=[2, 6, 2, 2], num_heads=[10, 8, 6, 4], C=self.channel_number,
@@ -123,7 +114,7 @@ class Config:
             'large': {
                 'encoder_kwargs': dict(img_size=self.image_dims[1:], patch_size=2, in_chans=3,
                                        embed_dims=[128, 192, 256, 320], depths=[2, 2, 18, 2], num_heads=[4, 6, 8, 10],
-                                       C=self.channel_number, query_dim=query_dim, window_size=8, mlp_ratio=4., qkv_bias=True,
+                                       C=self.channel_number, window_size=8, mlp_ratio=4., qkv_bias=True,
                                        norm_layer=nn.LayerNorm, patch_norm=True),
                 'decoder_kwargs': dict(img_size=self.image_dims[1:], embed_dims=[320, 256, 192, 128],
                                        depths=[2, 18, 2, 2], num_heads=[10, 8, 6, 4], C=self.channel_number,
@@ -169,126 +160,20 @@ def load_weights(net, model_path):
             new_state_dict[new_key] = value
         else:
             new_state_dict[key] = value
-
-    new_state_dict = {k: v for k, v in new_state_dict.items()
-                      if 'attn_mask' not in k}
-
     net.load_state_dict(new_state_dict, strict=False)
     return net
 
 
-# def test(net, test_loader, config, logger, args):
-#     net.eval()
-#     elapsed, psnrs, msssims, snrs, cbrs = [AverageMeter() for _ in range(5)]
-#     metrics = [elapsed, psnrs, msssims, snrs, cbrs]
-#     CalcuSSIM = MS_SSIM(data_range=1., levels=4, channel=3).to(config.device)
-#     multiple_snr = [int(snr) for snr in args.multiple_snr.split(",")]
-#     channel_number = [int(c) for c in args.C.split(",")]
-#     results_snr = np.zeros((len(multiple_snr), len(channel_number)))
-#     results_cbr = np.zeros((len(multiple_snr), len(channel_number)))
-#     results_psnr = np.zeros((len(multiple_snr), len(channel_number)))
-#     results_msssim = np.zeros((len(multiple_snr), len(channel_number)))
-
-#     for i, test_snr in enumerate(multiple_snr):
-#         for j, rate in enumerate(channel_number):
-#             with torch.no_grad():
-#                 for batch_idx, batch in enumerate(test_loader):
-
-#                     test_samples_dir = os.path.join(
-#                         config.samples, f"test_SNR{test_snr}_Rate{rate}")
-#                     os.makedirs(test_samples_dir, exist_ok=True)
-
-#                     start_time = time.time()
-#                     input, embedding_vector, names = batch
-#                     input = input.to(config.device)
-#                     embedding_vector = embedding_vector.to(config.device)
-
-#                     recon_image, CBR, actual_snr, mse, loss_G = net(
-#                         input, embedding_vector, test_snr, rate,)
-
-#                     elapsed.update(time.time() - start_time)
-#                     cbrs.update(CBR)
-#                     snrs.update(actual_snr)
-#                     psnr = calculate_psnr(mse)
-#                     psnrs.update(psnr)
-#                     msssim = 1 - \
-#                         CalcuSSIM(input, recon_image.clamp(
-#                             0., 1.)).mean().item()
-#                     msssims.update(msssim)
-#                     log = (' | '.join([
-#                         f'Batch [{batch_idx + 1}/{len(test_loader)}]',
-#                         f'Time {elapsed.val:.3f}s',
-#                         f'PSNR {psnrs.val:.3f} ({psnrs.avg:.3f})',
-#                         f'MSSSIM {msssims.val:.3f} ({msssims.avg:.3f})',
-#                     ]))
-#                     logger.info(
-#                         f'Test SNR={test_snr}, Rate={rate} with image  {names[0]}: {log}')
-
-#                     if args.testset == 'Kodak':
-#                         for k in range(recon_image.shape[0]):
-#                             image_name = names[k][:-4] + \
-#                                 f"_regon_psnr{psnr:.5f}_msssim{msssim:.5f}.png"
-#                             torchvision.utils.save_image(
-#                                 recon_image[k],
-#                                 os.path.join(test_samples_dir, image_name)
-#                             )
-#                     else:
-#                         dataset_name = args.dataset_name
-#                         os.makedirs(os.path.join(test_samples_dir,
-#                                     dataset_name), exist_ok=True)
-#                         if psnr > 35:
-#                             for k in range(recon_image.shape[0]):
-#                                 torchvision.utils.save_image(
-#                                     recon_image[k],
-#                                     os.path.join(
-#                                         test_samples_dir, dataset_name,
-#                                         names[k][:-4] +
-#                                         f"_regon_psnr{psnr:.5f}_msssim{msssim:.5f}.png"
-#                                     )
-#                                 )
-
-#                 results_snr[i, j] = snrs.avg
-#                 results_cbr[i, j] = cbrs.avg
-#                 results_psnr[i, j] = psnrs.avg
-#                 results_msssim[i, j] = msssims.avg
-
-#                 logger.info(f"Test SNR={test_snr}, Rate={rate} Summary:")
-#                 log = (' | '.join([
-#                     f'SNR {snrs.avg:.1f}',
-#                     f'CBR {cbrs.avg:.4f}',
-#                     f'PSNR {psnrs.avg:.3f}',
-#                     f'MSSSIM {msssims.avg:.3f}',
-#                 ]))
-
-#                 logger.info(f'Test Summary SNR={test_snr}, Rate={rate}: {log}')
-
-#                 for meter in metrics:
-#                     meter.clear()
-
-#     if config.device.type == 'cuda':
-#         logger.info(f"SNR: {results_snr.tolist()}")
-#         logger.info(f"CBR: {results_cbr.tolist()}")
-#         logger.info(f"PSNR: {results_psnr.tolist()}")
-#         logger.info(f"MS-SSIM: {results_msssim.tolist()}")
-#         logger.info("Finish Test!")
-
-#         epoch_dir = os.path.join(config.samples, f"results_epoch")
-#         os.makedirs(epoch_dir, exist_ok=True)
-
-#         save_2d_array_to_csv(results_psnr.tolist(),
-#                              os.path.join(epoch_dir, 'psnr.csv'))
-#         save_2d_array_to_csv(results_msssim.tolist(),
-#                              os.path.join(epoch_dir, 'msssim.csv'))
-
-#     return results_psnr.mean(), results_msssim.mean(), 0.0, results_cbr.mean()
+def save_2d_array_to_csv(array, filename):
+    with open(filename, 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerows(array)
 
 
 def test(net, test_loader, config, logger, evaluator, args):
     net.eval()
-    elapsed, psnrs, msssims, snrs, cbrs, similaritys, qry_similaritys = [
-        AverageMeter() for _ in range(7)]
-    metrics = [elapsed, psnrs, msssims, snrs,
-               cbrs, similaritys, qry_similaritys]
+    elapsed, psnrs, msssims, snrs, cbrs= [AverageMeter() for _ in range(5)]
+    metrics = [elapsed, psnrs, msssims, snrs,cbrs,]
     CalcuSSIM = MS_SSIM(data_range=1., levels=4, channel=3).to(config.device)
     multiple_snr = [int(snr) for snr in args.multiple_snr.split(",")]
     channel_number = [int(c) for c in args.C.split(",")]
@@ -296,8 +181,8 @@ def test(net, test_loader, config, logger, evaluator, args):
     results_cbr = np.zeros((len(multiple_snr), len(channel_number)))
     results_psnr = np.zeros((len(multiple_snr), len(channel_number)))
     results_msssim = np.zeros((len(multiple_snr), len(channel_number)))
-    results_similarity = np.zeros((len(multiple_snr), len(channel_number)))
-    results_qry_similarity = np.zeros((len(multiple_snr), len(channel_number)))
+    results_acc = np.zeros((len(multiple_snr), len(channel_number)))
+    results_source_acc = np.zeros((len(multiple_snr), len(channel_number)))
 
     result_save_dir = os.path.join(config.samples, 'results')
     os.makedirs(result_save_dir, exist_ok=True)
@@ -305,33 +190,27 @@ def test(net, test_loader, config, logger, evaluator, args):
     for i, test_snr in enumerate(multiple_snr):
         for j, rate in enumerate(channel_number):
             with torch.no_grad():
+                correct = 0
+                total = 0
+                real_correct = 0
+                source_correct = 0
                 for batch_idx, batch in enumerate(test_loader):
-                    test_samples_dir = os.path.join(
-                        config.samples, f"test_SNR{test_snr}_Rate{rate}")  # 使用test_snr
+                    test_samples_dir = os.path.join(config.samples, f"test_SNR{test_snr}_Rate{rate}")  # 使用test_snr
                     os.makedirs(test_samples_dir, exist_ok=True)
-
                     start_time = time.time()
-                    # input, names = batch[0], batch[2]
-                    # qry_text, qry_image_path, tgt_text, tgt_image_path = batch[
-                    #     3], batch[4], batch[5], batch[6]
-                    # input = input.to(config.device)
-                    # recon_image, CBR, actual_snr, mse, loss_G = net(
-                    #     input, test_snr, rate)
-                    input, embedding_vector, names = batch[0], batch[1], batch[2]
-                    qry_text, qry_image_path, tgt_text, tgt_image_path = batch[
-                        3], batch[4], batch[5], batch[6]
+                    input, names = batch[0], batch[1]
+                    qry_vec, tgt_vec, qry_text, qry_text_image_path = batch[2], batch[3], batch[4], batch[5]
+                    qry_vec, tgt_vec = qry_vec.to(config.device), tgt_vec.to(config.device)
                     input = input.to(config.device)
-                    embedding_vector = embedding_vector.to(config.device)
-                    recon_image, CBR, actual_snr, mse, loss_G = net(
-                        input, embedding_vector, test_snr, rate)
+                    recon_qry_image, CBR, actual_snr, mse, loss_G = net(input, test_snr, rate)
 
                     elapsed.update(time.time() - start_time)
                     cbrs.update(CBR)
-                    snrs.update(actual_snr)  # 使用actual_snr更新指标
+                    snrs.update(actual_snr) 
                     psnr = calculate_psnr(mse)
                     psnrs.update(psnr)
                     msssim = 1 - \
-                        CalcuSSIM(input, recon_image.clamp(
+                        CalcuSSIM(input, recon_qry_image.clamp(
                             0., 1.)).mean().item()
                     msssims.update(msssim)
 
@@ -340,50 +219,59 @@ def test(net, test_loader, config, logger, evaluator, args):
                                 dataset_name), exist_ok=True)
 
                     recon_image_paths = []
-                    for k in range(recon_image.shape[0]):
+                    for k in range(recon_qry_image.shape[0]):
                         recon_image_path = os.path.join(
                             test_samples_dir, dataset_name,
                             names[k][:-4] +
-                            f"_regon_psnr{psnr:.5f}_msssim{msssim:.5f}.png"
+                            f"_recon_psnr{psnr:.5f}_msssim{msssim:.5f}.png"
                         )
                         torchvision.utils.save_image(
-                            recon_image[k],
+                            recon_qry_image[k],
                             recon_image_path
                         )
                         recon_image_paths.append(recon_image_path)
+                    recon_qry = evaluator.compress_query(qry_text, recon_image_paths)
+                    recon_qry = recon_qry.float()
 
-                    # similarity = evaluator.evaluate_similarity(
-                    #     qry_text, qry_image_path, tgt_text, tgt_image_path
-                    # )
+                    source_qry = evaluator.compress_query(qry_text, qry_text_image_path)
+                    source_qry = source_qry.float()
 
-                    similarity = evaluator.evaluate_similarity(
-                        tgt_text, tgt_image_path, tgt_text, recon_image_paths
-                    )
+                    B, M, D = tgt_vec.shape
+                    recon_qry = recon_qry.unsqueeze(1)
+                    source_qry = source_qry.unsqueeze(1)
+                    qry_vec = qry_vec.unsqueeze(1)
+                   
 
-                    qry_similarity = evaluator.evaluate_similarity(
-                        qry_text, qry_image_path, tgt_text, recon_image_paths
-                    )
+                    recon_score, preds = get_pred(recon_qry, tgt_vec)
+                    correct += torch.sum(preds == 0).item()  
 
-                    similaritys.update(similarity)
-                    qry_similaritys.update(qry_similarity)
+
+                    source_score,source_preds = get_pred(source_qry, tgt_vec)
+                    source_correct += torch.sum(source_preds == 0).item()
+
+                    real_score, real_preds = get_pred(qry_vec, tgt_vec)
+                    real_correct += torch.sum(real_preds == 0).item()  # grounding accuracy
+                    total += B
 
                     log = (' | '.join([
                         f'Step [{batch_idx + 1}/{len(test_loader)}]',
                         f'Time {elapsed.val:.3f}s',
                         f'PSNR {psnrs.val:.3f} ({psnrs.avg:.3f})',
                         f'MSSSIM {msssims.val:.3f} ({msssims.avg:.3f})',
-                        f'Similarity {similaritys.val:.3f} ({similaritys.avg:.3f})',
-                        f'Qry Similarity {qry_similaritys.val:.3f} ({qry_similaritys.avg:.3f})'
+                        f"Recon Scoere {recon_score[0][0]}, Source Score {source_score[0][0]}, Real Score {real_score[0][0]}",
                     ]))
-                    logger.info(
-                        f'Test SNR={test_snr}, Rate={rate} with image  {names[0]}: {log}')
+                    logger.info(f'Test SNR={test_snr}, Rate={rate} with image  {names[0]}: {log}')
+                    
+                acc = correct / total
+                real_acc = real_correct / total
+                source_acc = source_correct / total
 
                 results_snr[i, j] = snrs.avg
                 results_cbr[i, j] = cbrs.avg
                 results_psnr[i, j] = psnrs.avg
                 results_msssim[i, j] = msssims.avg
-                results_similarity[i, j] = similaritys.avg
-                results_qry_similarity[i, j] = qry_similaritys.avg
+                results_acc[i, j] = acc
+                results_source_acc[i, j] = source_acc
 
                 logger.info(f"Test SNR={test_snr}, Rate={rate} Summary:")
                 log = (' | '.join([
@@ -391,8 +279,9 @@ def test(net, test_loader, config, logger, evaluator, args):
                     f'CBR {cbrs.avg:.4f}',
                     f'PSNR {psnrs.avg:.3f}',
                     f'MSSSIM {msssims.avg:.3f}',
-                    f'similarity {similaritys.avg:.3f}',
-                    f'qry_similaritys {qry_similaritys.avg:.3f}'
+                    f'ACC {acc}',
+                    f'Real ACC {real_acc}',
+                    f'Source ACC {source_acc}', 
                 ]))
 
                 logger.info(f'Test Summary SNR={test_snr}, Rate={rate}: {log}')
@@ -405,18 +294,18 @@ def test(net, test_loader, config, logger, evaluator, args):
         logger.info(f"CBR: {results_cbr.tolist()}")
         logger.info(f"PSNR: {results_psnr.tolist()}")
         logger.info(f"MS-SSIM: {results_msssim.tolist()}")
-        logger.info(f"Similarity: {results_similarity.tolist()}")
-        logger.info(f"Qry Similarity: {results_qry_similarity.tolist()}")
+        logger.info(f"Acc: {results_acc.tolist()}")
+        logger.info(f"Source ACC: {results_source_acc.tolist()}")
         logger.info("Finish Test!")
 
         save_2d_array_to_csv(results_psnr.tolist(),
                              os.path.join(result_save_dir, f'psnr.csv'))
         save_2d_array_to_csv(results_msssim.tolist(),
                              os.path.join(result_save_dir, f'msssim.csv'))
-        save_2d_array_to_csv(results_similarity.tolist(),
-                             os.path.join(result_save_dir, f'similarity.csv'))
-        save_2d_array_to_csv(results_qry_similarity.tolist(),
-                             os.path.join(result_save_dir, f'Qry_similarity.csv'))
+        save_2d_array_to_csv(results_acc.tolist(),
+                             os.path.join(result_save_dir, f'acc.csv'))
+        save_2d_array_to_csv(results_source_acc.tolist(),
+                             os.path.join(result_save_dir, f'source_acc.csv'))
 
     return results_psnr.mean(), results_msssim.mean(), 0.0, results_cbr.mean()
 
@@ -427,13 +316,17 @@ def main(opts):
     if config.device.type == 'cuda':
         logger.info(config.__dict__)
 
-    _, test_dataset = load_for_eval_dataset_mmeb(opts, config)
+    test_dataset = MMEBEmbeddingForAccuracy(
+        base_dir=config.test_data_dir,
+        image_dir=config.test_image_dir,
+        dataset_name=config.dataset_name
+    )
     test_loader = DataLoader(
-        test_dataset, batch_size=config.batch_size, shuffle=False,
+        test_dataset, batch_size=1, shuffle=False,
         num_workers=opts.num_workers, pin_memory=True
     )
 
-    net = ConditionSwinJSCC(opts, config)
+    net = SwinJSCC(opts, config)
     net = load_weights(net, opts.model_path)
     net = net.to(config.device)
 

@@ -15,9 +15,13 @@ from data.mmeb_datasets import *
 from utils import logger_configuration, seed_torch
 import warnings
 import time
+import csv
+
+from vlm2vec_service import GenerateImageIntentEvaluator
 
 warnings.filterwarnings("ignore", category=FutureWarning,
                         module="timm.models.layers")
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description='SwinJSCC Test')
@@ -25,10 +29,10 @@ def parse_args():
                         choices=['Kodak', 'MMEB'], help='Train dataset name')
     parser.add_argument('--distortion-metric', type=str, default='MSE',
                         choices=['MSE', 'MS-SSIM'], help='trainset metric')
-    parser.add_argument('--dataset_name', type=str, default='VisDial',
-                        choices=['CIRR','VisDial','NIGHTS'],
+    parser.add_argument('--dataset_name', type=str, default='NIGHTS',
+                        choices=['CIRR', 'VisDial', 'NIGHTS','WebQA','VisualNews_t2i'],
                         help='Dataset name for MMEB')
-    parser.add_argument('--model', type=str, default='SwinJSCC_w/_SA',
+    parser.add_argument('--model', type=str, default='SwinJSCC_w/_SAandRA',
                         choices=['SwinJSCC_w/o_SAandRA', 'SwinJSCC_w/_SA',
                                  'SwinJSCC_w/_RA', 'SwinJSCC_w/_SAandRA'],
                         help='SwinJSCC model variant')
@@ -41,7 +45,7 @@ def parse_args():
     parser.add_argument('--model_size', type=str, default='base',
                         choices=['small', 'base', 'large'], help='SwinJSCC model size')
     parser.add_argument('--model_path', type=str,
-                        default="mmeb_kodak_training/20250717_003514_C96_awgn_snr1_4_7_10_13_SwinJSCC_w__SA_MSE/2025-07-17_00-35-20/models/2025-07-17_00-35-20_EP200.model")
+                        default="checkpoint/Swinjscc/SwinJSCC_w_SAandRA_AWGN_HRimage_cbr_psnr_snr.model")
     parser.add_argument('--work_dir', type=str, default='./eval_results',
                         help='Path to save test images')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
@@ -71,13 +75,13 @@ class Config:
         os.makedirs(self.samples, exist_ok=True)
 
         self.image_dims = (3, 256, 256)
-        self.train_data_dir = "/home/iisc/zsd/project/VG2SC/MMEB-Datasets/MMEB-Datasets/MMEB-train"
-        self.image_dir = "/home/iisc/zsd/project/VG2SC/MMEB-Datasets/trainning_images"
+        self.train_data_dir = "/mnt/d/zsd/project/c-jscc/datasets/vlm2vec/MMEB-Datasets/MMEB-train"
+        self.image_dir = "/mnt/d/zsd/project/c-jscc/datasets/vlm2vec/MMEB-Datasets/images"
         self.dataset_name = args.dataset_name
 
         if args.testset == "MMEB":
-            self.test_data_dir = "/home/iisc/zsd/project/VG2SC/MMEB-Datasets/MMEB-Datasets/MMEB-eval"
-            self.test_image_dir = "/home/iisc/zsd/project/VG2SC/MMEB-Datasets/eval_images"
+            self.test_data_dir = "/mnt/d/zsd/project/c-jscc/datasets/vlm2vec/MMEB-Test/MMEB-eval"
+            self.test_image_dir = "/mnt/d/zsd/project/c-jscc/datasets/vlm2vec/MMEB-Test/eval_image"
         elif args.testset == "Kodak":
             self.test_data_dir = [
                 "/home/iisc/zsd/project/VG2SC/SwinJSCC/datasets/kodak/"]
@@ -159,10 +163,15 @@ def load_weights(net, model_path):
     return net
 
 
-def test(net, test_loader, config, logger, args):
+def save_2d_array_to_csv(array, filename):
+    with open(filename, 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerows(array)
+
+def test(net, test_loader, config, logger, evaluator, args):
     net.eval()
-    elapsed, psnrs, msssims, snrs, cbrs = [AverageMeter() for _ in range(5)]
-    metrics = [elapsed, psnrs, msssims, snrs, cbrs]
+    elapsed, psnrs, msssims, snrs, cbrs,similaritys,qry_similaritys = [AverageMeter() for _ in range(7)]
+    metrics = [elapsed, psnrs, msssims, snrs, cbrs,similaritys,qry_similaritys]
     CalcuSSIM = MS_SSIM(data_range=1., levels=4, channel=3).to(config.device)
     multiple_snr = [int(snr) for snr in args.multiple_snr.split(",")]
     channel_number = [int(c) for c in args.C.split(",")]
@@ -170,19 +179,24 @@ def test(net, test_loader, config, logger, args):
     results_cbr = np.zeros((len(multiple_snr), len(channel_number)))
     results_psnr = np.zeros((len(multiple_snr), len(channel_number)))
     results_msssim = np.zeros((len(multiple_snr), len(channel_number)))
+    results_similarity = np.zeros((len(multiple_snr), len(channel_number)))
+    results_qry_similarity = np.zeros((len(multiple_snr), len(channel_number)))
 
-    for i, test_snr in enumerate(multiple_snr):  
+    result_save_dir = os.path.join(config.samples, 'results')
+    os.makedirs(result_save_dir, exist_ok=True)
+
+    for i, test_snr in enumerate(multiple_snr):
         for j, rate in enumerate(channel_number):
             with torch.no_grad():
                 for batch_idx, batch in enumerate(test_loader):
-                    
-                    
                     test_samples_dir = os.path.join(
                         config.samples, f"test_SNR{test_snr}_Rate{rate}")  # 使用test_snr
                     os.makedirs(test_samples_dir, exist_ok=True)
-                    
+
                     start_time = time.time()
-                    input, names = batch
+                    input, names = batch[0], batch[2]
+                    qry_text, qry_image_path, tgt_text, tgt_image_path = batch[
+                        3], batch[4], batch[5], batch[6]
                     input = input.to(config.device)
                     recon_image, CBR, actual_snr, mse, loss_G = net(
                         input, test_snr, rate)
@@ -196,40 +210,55 @@ def test(net, test_loader, config, logger, args):
                         CalcuSSIM(input, recon_image.clamp(
                             0., 1.)).mean().item()
                     msssims.update(msssim)
+
+                    dataset_name = args.dataset_name
+                    os.makedirs(os.path.join(test_samples_dir,
+                                dataset_name), exist_ok=True)
+
+                    recon_image_paths = []
+                    for k in range(recon_image.shape[0]):
+                        recon_image_path = os.path.join(
+                            test_samples_dir, dataset_name,
+                            names[k][:-4] +
+                            f"_regon_psnr{psnr:.5f}_msssim{msssim:.5f}.png"
+                        )
+                        torchvision.utils.save_image(
+                            recon_image[k],
+                            recon_image_path
+                        )
+                        recon_image_paths.append(recon_image_path)
+
+                    # similarity = evaluator.evaluate_similarity(
+                    #     qry_text, qry_image_path, tgt_text, tgt_image_path
+                    # )
+
+                    similarity = evaluator.evaluate_similarity(
+                        tgt_text, tgt_image_path, tgt_text, recon_image_paths
+                    )
+
+                    qry_similarity = evaluator.evaluate_similarity(
+                        qry_text, qry_image_path, tgt_text, recon_image_paths
+                    )
+
+                    similaritys.update(similarity)
+                    qry_similaritys.update(qry_similarity)
+
                     log = (' | '.join([
                         f'Step [{batch_idx + 1}/{len(test_loader)}]',
                         f'Time {elapsed.val:.3f}s',
                         f'PSNR {psnrs.val:.3f} ({psnrs.avg:.3f})',
                         f'MSSSIM {msssims.val:.3f} ({msssims.avg:.3f})',
+                        f'Similarity {similaritys.val:.3f} ({similaritys.avg:.3f})',
+                        f'Qry Similarity {qry_similaritys.val:.3f} ({qry_similaritys.avg:.3f})'
                     ]))
-                    logger.info(
-                        f'Test SNR={test_snr}, Rate={rate} with image  {names[0]}: {log}')
-
-                    if args.testset == 'Kodak':
-                        for k in range(recon_image.shape[0]):  # 遍历 batch 中的每个样本
-                            # 用批量中的第 k 个文件名
-                            image_name = names[k][:-4] + f"_regon_psnr{psnr:.5f}_msssim{msssim:.5f}.png"
-                            torchvision.utils.save_image(
-                                recon_image[k],  # 取第 k 个重构图
-                                os.path.join(test_samples_dir, image_name)
-                            )
-                    else:
-                        dataset_name = args.dataset_name
-                        os.makedirs(os.path.join(test_samples_dir, dataset_name), exist_ok=True)
-                        if psnr > 35:  # 批量平均 PSNR 达标时保存
-                            for k in range(recon_image.shape[0]):
-                                torchvision.utils.save_image(
-                                    recon_image[k],
-                                    os.path.join(
-                                        test_samples_dir, dataset_name, 
-                                        names[k][:-4] + f"_regon_psnr{psnr:.5f}_msssim{msssim:.5f}.png"
-                                    )
-                                )
+                    logger.info(f'Test SNR={test_snr}, Rate={rate} with image  {names[0]}: {log}')
 
                 results_snr[i, j] = snrs.avg
                 results_cbr[i, j] = cbrs.avg
                 results_psnr[i, j] = psnrs.avg
                 results_msssim[i, j] = msssims.avg
+                results_similarity[i,j] = similaritys.avg
+                results_qry_similarity[i,j] = qry_similaritys.avg
 
                 logger.info(f"Test SNR={test_snr}, Rate={rate} Summary:")
                 log = (' | '.join([
@@ -237,6 +266,8 @@ def test(net, test_loader, config, logger, args):
                     f'CBR {cbrs.avg:.4f}',
                     f'PSNR {psnrs.avg:.3f}',
                     f'MSSSIM {msssims.avg:.3f}',
+                    f'similarity {similaritys.avg:.3f}',
+                    f'qry_similaritys {qry_similaritys.avg:.3f}'
                 ]))
 
                 logger.info(f'Test Summary SNR={test_snr}, Rate={rate}: {log}')
@@ -249,7 +280,18 @@ def test(net, test_loader, config, logger, args):
         logger.info(f"CBR: {results_cbr.tolist()}")
         logger.info(f"PSNR: {results_psnr.tolist()}")
         logger.info(f"MS-SSIM: {results_msssim.tolist()}")
+        logger.info(f"Similarity: {results_similarity.tolist()}")
+        logger.info(f"Qry Similarity: {results_qry_similarity.tolist()}")
         logger.info("Finish Test!")
+
+        save_2d_array_to_csv(results_psnr.tolist(),
+                             os.path.join(result_save_dir, f'psnr.csv'))
+        save_2d_array_to_csv(results_msssim.tolist(),
+                             os.path.join(result_save_dir, f'msssim.csv'))
+        save_2d_array_to_csv(results_similarity.tolist(),
+                             os.path.join(result_save_dir, f'similarity.csv'))
+        save_2d_array_to_csv(results_qry_similarity.tolist(),
+                             os.path.join(result_save_dir, f'Qry_similarity.csv'))
 
     return results_psnr.mean(), results_msssim.mean(), 0.0, results_cbr.mean()
 
@@ -260,7 +302,7 @@ def main(opts):
     if config.device.type == 'cuda':
         logger.info(config.__dict__)
 
-    _, test_dataset = load_source_dataset_mmeb(opts, config)
+    _, test_dataset = load_for_eval_dataset_mmeb(opts, config)
     test_loader = DataLoader(
         test_dataset, batch_size=1, shuffle=False,
         num_workers=opts.num_workers, pin_memory=True
@@ -270,8 +312,10 @@ def main(opts):
     net = load_weights(net, opts.model_path)
     net = net.to(config.device)
 
+    evaluator = GenerateImageIntentEvaluator()
+
     mean_psnr, mean_ms_ssim, _, mean_cbr = test(
-        net, test_loader, config, logger, opts)
+        net, test_loader, config, logger, evaluator, opts)
 
     print(f"Mean PSNR: {mean_psnr:.4f}")
     print(f"Mean MS-SSIM: {mean_ms_ssim:.4f}")

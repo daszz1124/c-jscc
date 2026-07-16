@@ -65,15 +65,15 @@ run_batch(){
     local dataset_name=$1
     local noise_std=$2
     # train_model 1536 100 512 "-1" 1.00 0.5 0.0 $dataset_name
-    train_model 1024 50 1024 ${noise_std} 1.00 0.5 0.0 $dataset_name
-    train_model 768 50 1024 ${noise_std} 1.00 0.5 0.0 $dataset_name
-    train_model 512 50 1024 ${noise_std} 1.00 0.5 0.0 $dataset_name
-    train_model 384 50 1024 ${noise_std} 1.00 0.5 0.0 $dataset_name
-    train_model 256 50 1024 ${noise_std} 1.00 0.5 0.0 $dataset_name
-    train_model 192 50 1024 ${noise_std} 1.00 0.5 0.0 $dataset_name
-    train_model 128 50 1024 ${noise_std} 1.00 0.5 0.0 $dataset_name
-    train_model 96 50 1024 ${noise_std} 1.00 0.5 0.0 $dataset_name
-    train_model 64 50 1024 ${noise_std} 1.00 0.5 0.0 $dataset_name
+    # train_model 1024 50 1024 ${noise_std} 1.00 0.5 0.0 $dataset_name
+    # train_model 768 50 1024 ${noise_std} 1.00 0.5 0.0 $dataset_name
+    # train_model 512 50 1024 ${noise_std} 1.00 0.5 0.0 $dataset_name
+    # train_model 384 50 1024 ${noise_std} 1.00 0.5 0.0 $dataset_name
+    # train_model 256 50 1024 ${noise_std} 1.00 0.5 0.0 $dataset_name
+    # train_model 192 50 1024 ${noise_std} 1.00 0.5 0.0 $dataset_name
+    # train_model 128 50 1024 ${noise_std} 1.00 0.5 0.0 $dataset_name
+    # train_model 96 50 1024 ${noise_std} 1.00 0.5 0.0 $dataset_name
+    # train_model 64 50 1024 ${noise_std} 1.00 0.5 0.0 $dataset_name
     train_model 32 50 1024 ${noise_std} 1.00 0.5 0.0 $dataset_name
     train_model 16 50 1024 ${noise_std} 1.00 0.5 0.0 $dataset_name
     train_model 8 50 1024 ${noise_std} 1.00 0.5 0.0 $dataset_name
@@ -100,19 +100,19 @@ run_all_snr(){
     # run_batch  "VisualNews_t2i" ${noise_std}
     # run_batch  "WebQA" ${noise_std} 
     run_batch  "CIRR" ${noise_std} 
-    run_batch  "VisDial" ${noise_std}
+    # run_batch  "VisDial" ${noise_std}
 }
 
 
 # run_all_snr 10
 # run_all_snr 7
-# run_all_snr 4
+run_all_snr 4
 # run_all_snr 1
 
 # run_all_snr 0
 # run_all_snr "-1"
 # run_all_snr "-4"
-run_all_snr "-7"
+# run_all_snr "-7"
 # run_all_snr "-10"
 
 

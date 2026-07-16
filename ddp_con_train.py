@@ -27,8 +27,7 @@ import warnings
 warnings.filterwarnings("ignore", category=FutureWarning,
                         module="timm.models.layers")
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
-
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 def parse_args():
     parser = argparse.ArgumentParser(description='SwinJSCC')
@@ -38,8 +37,8 @@ def parse_args():
                         default=False, help='Training or testing')
     parser.add_argument('--testset', type=str, default='MMEB',
                         choices=['Kodak', 'MMEB'], help='Train dataset name')
-    parser.add_argument('--dataset_name', type=str, default='CIRR',
-                        choices=['CIRR', 'VisDial', 'NIGHTS',"WebQA"],
+    parser.add_argument('--dataset_name', type=str, default='NIGHTS',
+                        choices=['CIRR', 'VisDial', 'NIGHTS', "WebQA"],
                         help='Dataset name for MMEB')
     parser.add_argument('--distortion-metric', type=str, default='MSE',
                         choices=['MSE', 'MS-SSIM'], help='Evaluation metric')
@@ -56,7 +55,7 @@ def parse_args():
     parser.add_argument('--model_size', type=str, default='base',
                         choices=['small', 'base', 'large'], help='SwinJSCC model size')
     parser.add_argument('--model_path', type=str,
-                        default="mmeb_condition_training/NIGHTS/20250827_115741_C192_awgn_snr13_SwinJSCC_w__SAandRA_MSE/2025-08-27_11-57-48/models/checkpoint_ep860_snr_13_rate_192_best_psnr_33.8635.pth", help='SwinJSCC model path')
+                        default="mmeb_condition_training/NIGHTS/20250910_174403_C8,16,32,64,96,128,192_awgn_snr10_SwinJSCC_w__SAandRA_MSE/2025-09-10_17-44-11/models/checkpoint_ep170_snr_10_rate_8_best_mssim_0.9328.pth", help='SwinJSCC model path')
     parser.add_argument('--workdir', type=str, default='./workdir')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
     parser.add_argument('--batch_size', type=int, default=16,
@@ -71,6 +70,10 @@ def parse_args():
                         help='Port for distributed training')
     parser.add_argument('--print_step', type=int, default=100,
                         help='Frequency of logging during training')
+    parser.add_argument('--test_multiple_snr', type=str, default='10',
+                        help='SNR values (comma-separated for test)')
+    parser.add_argument('--test_C', type=str, default='192',
+                        help='Bottleneck dimension (comma-separated for test)')
     return parser.parse_args()
 
 
@@ -101,13 +104,13 @@ class Config:
         self.test_model_freq = 10
         self.image_dims = (3, 256, 256)
 
-        self.train_data_dir = "/home/iisc/zsd/project/VG2SC/MMEB-Datasets/MMEB-Datasets/MMEB-train"
-        self.image_dir = "/home/iisc/zsd/project/VG2SC/MMEB-Datasets/trainning_images"
+        self.train_data_dir = "/mnt/d/zsd/project/c-jscc/datasets/vlm2vec/MMEB-Datasets/MMEB-train"
+        self.image_dir = "/mnt/d/zsd/project/c-jscc/datasets/vlm2vec/MMEB-Datasets/training_image"
         self.dataset_name = args.dataset_name
 
         if args.testset == "MMEB":
-            self.test_data_dir = "/home/iisc/zsd/project/VG2SC/MMEB-Datasets/MMEB-Datasets/MMEB-eval"
-            self.test_image_dir = "/home/iisc/zsd/project/VG2SC/MMEB-Datasets/eval_images"
+            self.test_data_dir = "/mnt/d/zsd/project/c-jscc/datasets/vlm2vec/MMEB-Test/MMEB-eval"
+            self.test_image_dir = "/mnt/d/zsd/project/c-jscc/datasets/vlm2vec/MMEB-Test/eval_image"
 
         elif args.testset == "Kodak":
             self.test_data_dir = [
@@ -228,7 +231,8 @@ def train_one_epoch(net, train_loader, optimizer, epoch, config, logger, writer,
             logger.info(log)
             writer.add_scalar('Loss/Train', losses.avg, global_step[0])
             writer.add_scalar('Metrics/PSNR_Train', psnrs.avg, global_step[0])
-            writer.add_scalar('Metrics/MS-SSIM_Train',msssims.avg, global_step[0])
+            writer.add_scalar('Metrics/MS-SSIM_Train',
+                              msssims.avg, global_step[0])
             writer.add_scalar('Metrics/CBR_Train', cbrs.avg, global_step[0])
             writer.add_scalar('Metrics/SNR_Train', snrs.avg, global_step[0])
 
@@ -258,8 +262,8 @@ def test_epoch(net, test_loader, config, logger, writer, epoch, node_rank, args)
     metrics = [elapsed, psnrs, msssims, snrs, cbrs]
     CalcuSSIM = MS_SSIM(data_range=1., levels=4, channel=3).to(net.device)
 
-    multiple_snr_setting = "1,7,13"
-    channel_number_setting = "32,96,192"
+    multiple_snr_setting = args.test_multiple_snr
+    channel_number_setting = args.test_C
 
     multiple_snr = [int(snr) for snr in multiple_snr_setting.split(",")]
     channel_number = [int(c) for c in channel_number_setting.split(",")]
@@ -345,7 +349,6 @@ def test_epoch(net, test_loader, config, logger, writer, epoch, node_rank, args)
         logger.info(f"PSNR: {results_psnr.tolist()}")
         logger.info(f"MS-SSIM: {results_msssim.tolist()}")
         logger.info("Finish Test!")
-
         save_2d_array_to_csv(results_psnr.tolist(),
                              os.path.join(epoch_dir, f'psnr_{epoch}.csv'))
         save_2d_array_to_csv(results_msssim.tolist(),
@@ -372,20 +375,6 @@ def load_weights(net, model_path):
 
     net.load_state_dict(new_state_dict, strict=False)
     return net
-
-
-def build_map():
-    snr_map = {
-        "0": "1",
-        "1": "7",
-        "2": "13"
-    }
-    channel_map = {
-        "0": "32",
-        "1": "96",
-        "2": "192"
-    }
-    return snr_map, channel_map
 
 
 def main(opts):
@@ -435,43 +424,47 @@ def main(opts):
 
     scheduler = schedulers["PSNR"]
 
-    best_results_snr = np.zeros((3, 3))
-    bset_result_mssim = np.zeros((3, 3))
-    
-    snr_map, channel_map = build_map()
+    multiple_snr_setting = opts.test_multiple_snr
+    channel_number_setting = opts.test_C
 
-    result_psnr_list = np.zeros((3, 3))
-    
+    multiple_snr = [int(snr) for snr in multiple_snr_setting.split(",")]
+    channel_number = [int(c) for c in channel_number_setting.split(",")]
+
+    best_results_snr = np.zeros((len(multiple_snr), len(channel_number)))
+    bset_result_mssim = np.zeros((len(multiple_snr), len(channel_number)))
+    result_psnr_list = np.zeros((len(multiple_snr), len(channel_number)))
+
     global_step = [0]
     for epoch in range(config.tot_epoch):
         train_loader.sampler.set_epoch(epoch)
         global_step[0] = train_one_epoch(
             net, train_loader, optimizer, epoch, config, logger, writer, node_rank, global_step)
-        
+
         if epoch % config.test_model_freq == 0:
-        
+
             if node_rank == 0:
                 mean_psnr, mean_ms_ssim, _, mean_cbr, result_psnr_list = test_epoch(
                     net, test_loader, config, logger, writer, epoch, node_rank, opts)
-                logger.info(f'Epoch {epoch + 1}: PSNR: {mean_psnr:.4f}, MS-SSIM: {mean_ms_ssim:.4f}, CBR: {mean_cbr:.4f}')
-                
+                logger.info(
+                    f'Epoch {epoch + 1}: PSNR: {mean_psnr:.4f}, MS-SSIM: {mean_ms_ssim:.4f}, CBR: {mean_cbr:.4f}')
+
             else:
                 mean_psnr, mean_ms_ssim, _, mean_cbr, _ = test_epoch(
                     net, test_loader, config, logger, writer, epoch, node_rank, opts)
 
             if node_rank == 0:
-                for i in range(3):
-                    for j in range(3):
+                for i in range(len(result_psnr_list)):
+                    for j in range(len(result_psnr_list[0])):
                         if result_psnr_list[i][j] > best_results_snr[i][j]:
                             best_results_snr[i][j] = result_psnr_list[i][j]
                             torch.save(net.module.state_dict(), os.path.join(
-                                config.models, f"checkpoint_ep{epoch}_snr_{snr_map[str(i)]}_rate_{channel_map[str(j)]}_best_psnr_{best_results_snr[i][j]:.4f}.pth"))
+                                config.models, f"checkpoint_ep{epoch}_snr_{multiple_snr[i]}_rate_{channel_number[j]}_best_psnr_{best_results_snr[i][j]:.4f}.pth"))
                         elif mean_ms_ssim > bset_result_mssim[i][j]:
                             bset_result_mssim[i][j] = mean_ms_ssim
                             torch.save(net.module.state_dict(), os.path.join(
-                                config.models, f"checkpoint_ep{epoch}_snr_{snr_map[str(i)]}_rate_{channel_map[str(j)]}_best_mssim_{bset_result_mssim[i][j]:.4f}.pth"
+                                config.models, f"checkpoint_ep{epoch}_snr_{multiple_snr[i]}_rate_{channel_number[j]}_best_mssim_{bset_result_mssim[i][j]:.4f}.pth"
                             ))
-                            
+
         scheduler.step(result_psnr_list[-1][-1])
         dist.barrier()
         torch.cuda.empty_cache()

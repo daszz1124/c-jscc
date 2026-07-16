@@ -82,7 +82,7 @@ class MMEBEmbeddingOnlyDataset(Dataset):
             indices = self.sample_indices(len(self.df), sample_size)
             self.df = self.df.iloc[indices].reset_index(drop=True)
 
-        pkl_base_dir = "mmeb_traindatasets_cp" if split != 'test' else "mmeb_testdatasets_cp"
+        pkl_base_dir = "mmeb_traindatasets" if split != 'test' else "mmeb_testdatasets"
 
         self.key_embedding_map = self.load_embedding_dict_pkl(
             os.path.join("datasets", pkl_base_dir, dataset_name,
@@ -335,9 +335,9 @@ def test_epoch(model, dataloader, device, args, normalization=True):
 def main():
     args = argument_parser()
 
-    device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
-    train_base_dir = "/home/iisc/zsd/project/VG2SC/MMEB-Datasets/MMEB-Datasets/MMEB-train"
-    test_base_dir = "/home/iisc/zsd/project/VG2SC/MMEB-Datasets/MMEB-Datasets/MMEB-eval"
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    train_base_dir = "datasets/vlm2vec/MMEB-Datasets/MMEB-train"
+    test_base_dir = "datasets/vlm2vec/MMEB-Test/MMEB-eval"
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     work_dir = os.path.join(args.save_dir, f"run_{args.dataset_name}_latent{args.latent_dim}_epoch{args.epoch}_split_{args.split}_noise_std{args.noise_std}_bszie{args.batch_size}_lambda_nce{args.lambda_nce}_alpha{args.alpha}_beta{args.beta}")
@@ -424,7 +424,6 @@ def main():
                 device,
                 args
             )
-            
             
             current_lr = optimizer.param_groups[0]['lr']
             writer.add_scalar("Train/Learning_Rate", current_lr, epoch)

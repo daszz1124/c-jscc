@@ -48,3 +48,11 @@ Swinjscc_evaluation_logs/
 
 Vector_compress/
 EmbedSC-Ⅰ/
+eval_results/
+datasets/
+
+Swinjscc_evaluation_acc/
+Swinjscc_evaluation_acc_logs/
+similarity_results/
+vector_channel_compress
+Vis_image_result/

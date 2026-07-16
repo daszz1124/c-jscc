@@ -2,8 +2,8 @@
 # SwinJSCC 测试脚本 
 
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-mkdir -p "Swinjscc_evaluation_logs/"
-mkdir -p "Swinjscc_evaluation/"
+mkdir -p "Swinjscc_evaluation_acc_logs/"
+mkdir -p "Swinjscc_evaluation_acc/"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -20,13 +20,13 @@ run_evaluation() {
     local model_path=$7
     local dataset_name=$8
 
-    local work_dir="./Swinjscc_evaluation/${TIMESTAMP}_C${c}_${channel_type}_snr${snr_set//,/_}_${model//\//_}_${metric}"
-    local log_file="./Swinjscc_evaluation_logs/${TIMESTAMP}_C${c}_${channel_type}_snr${snr_set//,/_}_${model//\//_}_${metric}.log"
+    local work_dir="./Swinjscc_evaluation_acc/${TIMESTAMP}_C${c}_${channel_type}_snr${snr_set//,/_}_${model//\//_}_${metric}"
+    local log_file="./Swinjscc_evaluation_acc_logs/${TIMESTAMP}_C${c}_${channel_type}_snr${snr_set//,/_}_${model//\//_}_${metric}.log"
 
     mkdir -p "${work_dir}"
 
     local start_time=$(date +%s)
-    python -W ignore::FutureWarning:timm.models.layers eval.py \
+    python -W ignore::FutureWarning:timm.models.layers eval_acc.py \
         --testset MMEB \
         --model_path "${model_path}" \
         --distortion-metric "${metric}" \
@@ -52,39 +52,13 @@ run_evaluation_set1() {
     local snr_set="1,4,7,10,13"
     local metric="MSE"
     local model_size="base"
-    local model_path="checkpoint/pretrained_SwinJSCC_w_SAandRA_AWGN_HRimage_cbr_psnr_snr13.model"
+    local model_path="checkpoint/Swinjscc/pretrained_SwinJSCC_w_SAandRA_AWGN_HRimage_cbr_psnr_snr13.model"
     local dataset_name=$1
     run_evaluation "${c}" "${model}" "${channel_type}" "${snr_set}" "${metric}" "${model_size}" "${model_path}" "${dataset_name}"
 }
 
 
 run_evaluation_set2() {
-    local c="32,64,96,128,192"
-    local model="SwinJSCC_w/_SAandRA"
-    local channel_type="awgn"
-    local snr_set="1,4,7,10,13"
-    local metric="MSE"
-    local model_size="base"
-    local model_path="checkpoint/SwinJSCC_w_SAandRA_AWGN_HRimage_cbr_psnr_snr.model"
-    local dataset_name=$1
-    run_evaluation "${c}" "${model}" "${channel_type}" "${snr_set}" "${metric}" "${model_size}" "${model_path}" "${dataset_name}"
-}
-
-run_evaluation_set3() {
-    local c="32,64,96,128,192"
-    local model="SwinJSCC_w/_SAandRA"
-    local channel_type="awgn"
-    local snr_set="1,4,7,10,13"
-    local metric="MSE"
-    local model_size="base"
-    local model_path="checkpoint/Swinjscc/wo_SwinJSCC.model"
-    local dataset_name=$1
-    run_evaluation "${c}" "${model}" "${channel_type}" "${snr_set}" "${metric}" "${model_size}" "${model_path}" "${dataset_name}"
-}
-
-
-
-run_evaluation_set3() {
     local c="8,16,32,64,96,128,192"
     local model="SwinJSCC_w/_SAandRA"
     local channel_type="awgn"
@@ -97,4 +71,5 @@ run_evaluation_set3() {
 }
 
 
-run_evaluation_set3 "NIGHTS"
+# run_evaluation_set2 "CIRR"
+run_evaluation_set2 "NIGHTS"
